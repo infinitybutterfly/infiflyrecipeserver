@@ -496,7 +496,11 @@ fun Application.configureRouting() {
         get("/api/recipeswoa") {
             // Fetch all recipes from the database (We'll limit it to 50 so it doesn't crash the app if you have millions later!)
             val allRecipes = transaction {
-                Recipes.selectAll().limit(50).map { row ->
+                (Recipes innerJoin Users)
+                    .slice(Recipes.columns + Users.username)
+                    .selectAll()
+                    .limit(50)
+                    .map { row ->
                     RecipeResponse(
                         id = row[Recipes.id].value,
                         name = row[Recipes.name],
