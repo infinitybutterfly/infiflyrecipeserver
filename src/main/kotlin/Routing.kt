@@ -593,7 +593,7 @@ fun Application.configureRouting() {
 // EMAIL FUNCTION
 suspend fun sendOtpEmail(targetEmail: String, otp: String) {
     withContext(Dispatchers.IO) {
-        try {
+        // try {
             val senderEmail = dotenv["SMTP_EMAIL"] ?: System.getenv("SMTP_EMAIL")
             val senderPassword = dotenv["SMTP_PASSWORD"] ?: System.getenv("SMTP_PASSWORD")
 
@@ -602,8 +602,11 @@ suspend fun sendOtpEmail(targetEmail: String, otp: String) {
 //            email.setSmtpPort(465)
             email.setSmtpPort(587)
             email.setAuthenticator(DefaultAuthenticator(senderEmail, senderPassword))
-            email.isStartTLSEnabled = true  //for 587
-            email.setSSLOnConnect(false)
+            email.isStartTLSEnabled = true
+            email.isStartTLSRequired = true  // Forces the upgrade to secure
+            email.isSSLOnConnect = false      // Disables the old Port 465 method
+            // email.isStartTLSEnabled = true  //for 587
+            // email.setSSLOnConnect(false)
 
             email.setFrom(senderEmail, "InfiFly Recipes")
             email.subject = "Your Login Code"
@@ -611,9 +614,9 @@ suspend fun sendOtpEmail(targetEmail: String, otp: String) {
             email.addTo(targetEmail)
 
             email.send()
-        } catch (e: Exception) {
-            println("Error sending email: ${e.message}")
-        }
+        // } catch (e: Exception) {
+        //     println("Error sending email: ${e.message}")
+        // }
     }
 }
 
