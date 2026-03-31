@@ -599,9 +599,11 @@ suspend fun sendOtpEmail(targetEmail: String, otp: String) {
 
             val email = SimpleEmail()
             email.setHostName("smtp.gmail.com")
-            email.setSmtpPort(465)
+//            email.setSmtpPort(465)
+            email.setSmtpPort(587)
             email.setAuthenticator(DefaultAuthenticator(senderEmail, senderPassword))
-            email.setSSLOnConnect(true)
+            email.isStartTLSEnabled = true  //for 587
+            email.setSSLOnConnect(false)
 
             email.setFrom(senderEmail, "InfiFly Recipes")
             email.subject = "Your Login Code"
