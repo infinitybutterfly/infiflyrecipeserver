@@ -39,32 +39,43 @@ fun Application.configureRouting() {
 
         // ROUTE 1: Request Email OTP
         post("/api/request-otp") {
-            val request = try { call.receive<EmailOtpRequest>() } catch (_: Exception) {
-                call.respond(HttpStatusCode.BadRequest, "Invalid data")
-                return@post
-            }
+            val request = call.receive<EmailOtpRequest>()
+    val otp = (100000..999999).random().toString()
 
-            val generatedOtp = (100000..999999).random().toString()
-            val formattedEmail = request.email.lowercase().trim()
+    try {
+        sendOtpEmail(request.email, otp)
+        // Only if the line above SUCCEEDS does this run:
+        call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "OTP Sent"))
+    } catch (e: Exception) {
+        // If email fails, the app gets a 500 error and STAYS on the login screen
+        call.respond(HttpStatusCode.InternalServerError, SimpleMessageResponse(false, e.message ?: "Email failed"))
+    }
+            // val request = try { call.receive<EmailOtpRequest>() } catch (_: Exception) {
+            //     call.respond(HttpStatusCode.BadRequest, "Invalid data")
+            //     return@post
+            // }
 
-            transaction {
-                // FIXED: Using selectAll().where to fix Exposed deprecation warning
-                val existingUser = Users.selectAll().where { Users.email eq formattedEmail }.singleOrNull()
+            // val generatedOtp = (100000..999999).random().toString()
+            // val formattedEmail = request.email.lowercase().trim()
 
-                if (existingUser != null) {
-                    Users.update({ Users.email eq formattedEmail }) { it[otpCode] = generatedOtp }
-                } else {
-                    Users.insert {
-                        it[email] = formattedEmail
-                        it[otpCode] = generatedOtp
-                    }
-                }
-            }
+            // transaction {
+            //     // FIXED: Using selectAll().where to fix Exposed deprecation warning
+            //     val existingUser = Users.selectAll().where { Users.email eq formattedEmail }.singleOrNull()
 
-            // 3. SEND THE REAL EMAIL!
-            sendOtpEmail(formattedEmail, generatedOtp)
+            //     if (existingUser != null) {
+            //         Users.update({ Users.email eq formattedEmail }) { it[otpCode] = generatedOtp }
+            //     } else {
+            //         Users.insert {
+            //             it[email] = formattedEmail
+            //             it[otpCode] = generatedOtp
+            //         }
+            //     }
+            // }
 
-            call.respond(HttpStatusCode.OK, SimpleMessageResponse(success = true, message = "OTP Sent to Email"))
+            // // 3. SEND THE REAL EMAIL!
+            // sendOtpEmail(formattedEmail, generatedOtp)
+
+            // call.respond(HttpStatusCode.OK, SimpleMessageResponse(success = true, message = "OTP Sent to Email"))
         }
 
         // ROUTE 2: Verify OTP and Download Profile Cache
