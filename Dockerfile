@@ -1,5 +1,5 @@
 # Stage 1: Build the application using Gradle
-FROM gradle:8.10-jdk21 AS build
+FROM gradle:8.11.1-jdk17 AS build
 COPY --chown=gradle:gradle . /home/gradle/src
 WORKDIR /home/gradle/src
 # This creates the executable files
