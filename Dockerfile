@@ -13,5 +13,5 @@ COPY --from=build /home/gradle/src/build/install/ /app/
 
 # Replace 'your-project-name' with the actual name of your project folder inside build/install/
 # (This is usually the name of your root project folder)
-WORKDIR /app/infifly-recipe-server/bin
-CMD ["./infifly-recipe-server"]
+WORKDIR /app/infiflyrecipeserver/bin
+CMD ["./infiflyrecipeserver"]
