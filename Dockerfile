@@ -1,12 +1,12 @@
 # Stage 1: Build the application using Gradle
-FROM gradle:8.11.1-jdk17 AS build
+FROM gradle:8.11.1-jdk21 AS build
 COPY --chown=gradle:gradle . /home/gradle/src
 WORKDIR /home/gradle/src
 # This creates the executable files
 RUN gradle installDist --no-daemon
 
 # Stage 2: Run the application
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:21-jre
 EXPOSE 8080
 RUN mkdir /app
 COPY --from=build /home/gradle/src/build/install/ /app/
