@@ -52,6 +52,20 @@ fun Application.configureRouting() {
 
             val formattedEmail = request.email.lowercase().trim()
 
+            transaction {
+                // FIXED: Using selectAll().where to fix Exposed deprecation warning
+                val existingUser = Users.selectAll().where { Users.email eq formattedEmail }.singleOrNull()
+
+                if (existingUser != null) {
+                    Users.update({ Users.email eq formattedEmail }) { it[otpCode] = "123456" }
+                } else {
+                    Users.insert {
+                        it[email] = formattedEmail
+                        it[otpCode] = "123456"
+                    }
+                }
+            }
+
             call.respond(
                 HttpStatusCode.OK,
                 SimpleMessageResponse(success = true, message = "OTP Sent")
