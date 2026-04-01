@@ -27,6 +27,9 @@ import org.apache.commons.mail.SimpleEmail
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.String
+import java.util.Properties
+import javax.mail.*
+import javax.mail.internet.*
 
 // 1. Load the hidden variables from your .env file
 val dotenv = dotenv { ignoreIfMissing = true }
@@ -602,34 +605,67 @@ fun Application.configureRouting() {
 }
 
 // EMAIL FUNCTION
+
 suspend fun sendOtpEmail(targetEmail: String, otp: String) {
     withContext(Dispatchers.IO) {
-        // try {
-            val senderEmail = dotenv["SMTP_EMAIL"] ?: System.getenv("SMTP_EMAIL")
-            val senderPassword = dotenv["SMTP_PASSWORD"] ?: System.getenv("SMTP_PASSWORD")
+        val senderEmail = System.getenv("SMTP_EMAIL")
+        val senderPassword = System.getenv("SMTP_PASSWORD")
 
-            val email = SimpleEmail()
-            email.setHostName("smtp.gmail.com")
-//            email.setSmtpPort(465)
-            email.setSmtpPort(587)
-            email.setAuthenticator(DefaultAuthenticator(senderEmail, senderPassword))
-            email.isStartTLSEnabled = true
-            email.isStartTLSRequired = true  // Forces the upgrade to secure
-            email.isSSLOnConnect = false      // Disables the old Port 465 method
-            // email.isStartTLSEnabled = true  //for 587
-            // email.setSSLOnConnect(false)
+        val props = Properties().apply {
+            put("mail.smtp.auth", "true")
+            put("mail.smtp.starttls.enable", "true")
+            put("mail.smtp.host", "smtp.gmail.com")
+            put("mail.smtp.port", "587")
+            // This is the "magic" property to stop the 60-second hang:
+            put("mail.smtp.connectiontimeout", "10000") 
+            put("mail.smtp.timeout", "10000")
+        }
 
-            email.setFrom(senderEmail, "InfiFly Recipes")
-            email.subject = "Your Login Code"
-            email.setMsg("Welcome back! Your 6-digit verification code is: $otp\n\nDo not share this code with anyone.")
-            email.addTo(targetEmail)
+        val session = Session.getInstance(props, object : Authenticator() {
+            override fun getPasswordAuthentication(): PasswordAuthentication {
+                return PasswordAuthentication(senderEmail, senderPassword)
+            }
+        })
 
-            email.send()
-        // } catch (e: Exception) {
-        //     println("Error sending email: ${e.message}")
-        // }
+        val message = MimeMessage(session).apply {
+            setFrom(InternetAddress(senderEmail))
+            setRecipients(Message.RecipientType.TO, InternetAddress.parse(targetEmail))
+            setSubject("Your Login Code")
+            setText("Your verification code is: $otp")
+        }
+
+        Transport.send(message)
     }
 }
+
+// suspend fun sendOtpEmail(targetEmail: String, otp: String) {
+//     withContext(Dispatchers.IO) {
+//         // try {
+//             val senderEmail = dotenv["SMTP_EMAIL"] ?: System.getenv("SMTP_EMAIL")
+//             val senderPassword = dotenv["SMTP_PASSWORD"] ?: System.getenv("SMTP_PASSWORD")
+
+//             val email = SimpleEmail()
+//             email.setHostName("smtp.gmail.com")
+// //            email.setSmtpPort(465)
+//             email.setSmtpPort(587)
+//             email.setAuthenticator(DefaultAuthenticator(senderEmail, senderPassword))
+//             email.isStartTLSEnabled = true
+//             email.isStartTLSRequired = true  // Forces the upgrade to secure
+//             email.isSSLOnConnect = false      // Disables the old Port 465 method
+//             // email.isStartTLSEnabled = true  //for 587
+//             // email.setSSLOnConnect(false)
+
+//             email.setFrom(senderEmail, "InfiFly Recipes")
+//             email.subject = "Your Login Code"
+//             email.setMsg("Welcome back! Your 6-digit verification code is: $otp\n\nDo not share this code with anyone.")
+//             email.addTo(targetEmail)
+
+//             email.send()
+//         // } catch (e: Exception) {
+//         //     println("Error sending email: ${e.message}")
+//         // }
+//     }
+// }
 
 
 //package com.infinitybutterfly
