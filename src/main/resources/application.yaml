@@ -11,5 +11,3 @@ postgres:
   domain: "https://jwt-provider-domain/"
   audience: "jwt-audience"
   realm: "ktor sample app"
-jwt:
-    secret: ${JWT_SECRET}
