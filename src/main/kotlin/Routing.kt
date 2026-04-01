@@ -615,10 +615,10 @@ suspend fun sendOtpEmail(targetEmail: String, otp: String) {
             put("mail.smtp.auth", "true")
             put("mail.smtp.starttls.enable", "true")
             put("mail.smtp.host", "smtp.gmail.com")
-            put("mail.smtp.port", "587")
+            put("mail.smtp.port", "2525")
             // This is the "magic" property to stop the 60-second hang:
-            put("mail.smtp.connectiontimeout", "10000") 
-            put("mail.smtp.timeout", "10000")
+            put("mail.smtp.connectiontimeout", "30000") 
+            put("mail.smtp.timeout", "30000")
         }
 
         val session = Session.getInstance(props, object : Authenticator() {
