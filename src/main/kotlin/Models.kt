@@ -7,6 +7,7 @@ import org.jetbrains.exposed.dao.id.IntIdTable
 object Users : IntIdTable() {
     val email = varchar("email", 100).uniqueIndex()
     val otpCode = varchar("otp_code", 6).nullable()
+    val isVerified = bool("is_verified").default(false)
 
     // Profile Data (For your Android Cache)
     val name = varchar("name", 100).nullable()
