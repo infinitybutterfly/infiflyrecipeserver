@@ -107,7 +107,8 @@ fun Application.configureRouting() {
             // Generate JWT
             val jwtSecret = dotenv["JWT_SECRET"] ?: throw Exception("Missing Secret")
             val token = JWT.create()
-                .withIssuer("http://localhost:8080/")
+                // .withIssuer("http://localhost:8080/")
+                .withIssuer("https://infiflyrecipeserver.onrender.com/")
                 .withClaim("user_id", userRow[Users.id].value.toString())
                 .withExpiresAt(Date(System.currentTimeMillis() + 604800000))
                 .sign(Algorithm.HMAC256(jwtSecret))
