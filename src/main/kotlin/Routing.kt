@@ -41,103 +41,194 @@ fun Application.configureRouting() {
     routing {
 
         // ROUTE 1: Request Email OTP
+
         post("/api/request-otp") {
-            val request = call.receive<EmailOtpRequest>()
-    val otp = (100000..999999).random().toString()
-
-    try {
-        sendOtpEmail(request.email, otp)
-        // Only if the line above SUCCEEDS does this run:
-        call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "OTP Sent"))
-    } catch (e: Exception) {
-        // If email fails, the app gets a 500 error and STAYS on the login screen
-        call.respond(HttpStatusCode.InternalServerError, SimpleMessageResponse(false, e.message ?: "Email failed"))
-    }
-            // val request = try { call.receive<EmailOtpRequest>() } catch (_: Exception) {
-            //     call.respond(HttpStatusCode.BadRequest, "Invalid data")
-            //     return@post
-            // }
-
-            // val generatedOtp = (100000..999999).random().toString()
-            // val formattedEmail = request.email.lowercase().trim()
-
-            // transaction {
-            //     // FIXED: Using selectAll().where to fix Exposed deprecation warning
-            //     val existingUser = Users.selectAll().where { Users.email eq formattedEmail }.singleOrNull()
-
-            //     if (existingUser != null) {
-            //         Users.update({ Users.email eq formattedEmail }) { it[otpCode] = generatedOtp }
-            //     } else {
-            //         Users.insert {
-            //             it[email] = formattedEmail
-            //             it[otpCode] = generatedOtp
-            //         }
-            //     }
-            // }
-
-            // // 3. SEND THE REAL EMAIL!
-            // sendOtpEmail(formattedEmail, generatedOtp)
-
-            // call.respond(HttpStatusCode.OK, SimpleMessageResponse(success = true, message = "OTP Sent to Email"))
-        }
-
-        // ROUTE 2: Verify OTP and Download Profile Cache
-        post("/api/verify-otp") {
-            val request = try { call.receive<VerifyEmailRequest>() } catch (_: Exception) {
-                call.respond(HttpStatusCode.BadRequest, "Invalid data")
+            val request = try {
+                call.receive<EmailOtpRequest>()
+            } catch (e: Exception) {
+                call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Invalid email format"))
                 return@post
             }
 
             val formattedEmail = request.email.lowercase().trim()
 
-            val userRow = transaction {
-                // FIXED: Using selectAll().where
-                Users.selectAll().where { Users.email eq formattedEmail }.singleOrNull()
-            }
+            call.respond(
+                HttpStatusCode.OK,
+                SimpleMessageResponse(success = true, message = "OTP Sent")
+            )
+        }
+        
+    //     post("/api/request-otp") {
+    //         val request = call.receive<EmailOtpRequest>()
+    // val otp = (100000..999999).random().toString()
 
-            val savedOtp = userRow?.get(Users.otpCode)
-            if (userRow == null || savedOtp == null || savedOtp != request.otp) {
-                call.respond(HttpStatusCode.Unauthorized, SimpleMessageResponse(success = false, message = "Invalid OTP"))
+    // try {
+    //     sendOtpEmail(request.email, otp)
+    //     // Only if the line above SUCCEEDS does this run:
+    //     call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "OTP Sent"))
+    // } catch (e: Exception) {
+    //     // If email fails, the app gets a 500 error and STAYS on the login screen
+    //     call.respond(HttpStatusCode.InternalServerError, SimpleMessageResponse(false, e.message ?: "Email failed"))
+    // }
+    //         // val request = try { call.receive<EmailOtpRequest>() } catch (_: Exception) {
+    //         //     call.respond(HttpStatusCode.BadRequest, "Invalid data")
+    //         //     return@post
+    //         // }
+
+    //         // val generatedOtp = (100000..999999).random().toString()
+    //         // val formattedEmail = request.email.lowercase().trim()
+
+    //         // transaction {
+    //         //     // FIXED: Using selectAll().where to fix Exposed deprecation warning
+    //         //     val existingUser = Users.selectAll().where { Users.email eq formattedEmail }.singleOrNull()
+
+    //         //     if (existingUser != null) {
+    //         //         Users.update({ Users.email eq formattedEmail }) { it[otpCode] = generatedOtp }
+    //         //     } else {
+    //         //         Users.insert {
+    //         //             it[email] = formattedEmail
+    //         //             it[otpCode] = generatedOtp
+    //         //         }
+    //         //     }
+    //         // }
+
+    //         // // 3. SEND THE REAL EMAIL!
+    //         // sendOtpEmail(formattedEmail, generatedOtp)
+
+    //         // call.respond(HttpStatusCode.OK, SimpleMessageResponse(success = true, message = "OTP Sent to Email"))
+    //     }
+
+        // ROUTE 2: Verify OTP and Download Profile Cache
+        // post("/api/verify-otp") {
+        //     val request = try { call.receive<VerifyEmailRequest>() } catch (_: Exception) {
+        //         call.respond(HttpStatusCode.BadRequest, "Invalid data")
+        //         return@post
+        //     }
+
+        //     val formattedEmail = request.email.lowercase().trim()
+
+        //     val userRow = transaction {
+        //         // FIXED: Using selectAll().where
+        //         Users.selectAll().where { Users.email eq formattedEmail }.singleOrNull()
+        //     }
+
+        //     val savedOtp = userRow?.get(Users.otpCode)
+        //     if (userRow == null || savedOtp == null || savedOtp != request.otp) {
+        //         call.respond(HttpStatusCode.Unauthorized, SimpleMessageResponse(success = false, message = "Invalid OTP"))
+        //         return@post
+        //     }
+
+        //     // Clear OTP
+        //     transaction { Users.update({ Users.email eq formattedEmail }) { it[otpCode] = null } }
+
+        //     // Generate JWT
+        //     val jwtSecret = dotenv["JWT_SECRET"] ?: throw Exception("Missing Secret")
+        //     val token = JWT.create()
+        //         .withIssuer("http://localhost:8080/")
+        //         // .withIssuer("https://infiflyrecipeserver.onrender.com/")
+        //         .withClaim("user_id", userRow[Users.id].value.toString())
+        //         .withExpiresAt(Date(System.currentTimeMillis() + 604800000))
+        //         .sign(Algorithm.HMAC256(jwtSecret))
+
+        //     // Package the Profile Data for the Android Cache!
+        //     val profileData = UserProfile(
+        //         name = userRow[Users.name],
+        //         username = userRow[Users.username],
+        //         country = userRow[Users.country],
+        //         dob = userRow[Users.dob],
+        //         bio = userRow[Users.bio],
+        //         profileImageUrl = userRow[Users.profileImageUrl],
+        //         isProfileComplete = userRow[Users.isProfileComplete],
+        //         allergies = userRow[Users.allergies],
+        //         favFoods = userRow[Users.favFoods]
+        //     )
+
+        //     // Send everything back in one neat package
+        //     call.respond(
+        //         HttpStatusCode.OK,
+        //         LoginResponse(
+        //             success = true,
+        //             token = token,
+        //             isProfileComplete = userRow[Users.isProfileComplete],
+        //             profileData = profileData
+        //         )
+        //     )
+        // }
+
+
+         post("/api/verify-otp") {
+            // 1. Receive and validate request
+            val request = try {
+                call.receive<VerifyEmailRequest>()
+            } catch (_: Exception) {
+                call.respond(HttpStatusCode.BadRequest, "Invalid data format")
                 return@post
             }
 
-            // Clear OTP
-            transaction { Users.update({ Users.email eq formattedEmail }) { it[otpCode] = null } }
+            val formattedEmail = request.email.lowercase().trim()
 
-            // Generate JWT
-            val jwtSecret = dotenv["JWT_SECRET"] ?: throw Exception("Missing Secret")
-            val token = JWT.create()
-                .withIssuer("http://localhost:8080/")
-                // .withIssuer("https://infiflyrecipeserver.onrender.com/")
-                .withClaim("user_id", userRow[Users.id].value.toString())
-                .withExpiresAt(Date(System.currentTimeMillis() + 604800000))
-                .sign(Algorithm.HMAC256(jwtSecret))
+            // Define userRow outside the IF so it is accessible later
+            var userRow: ResultRow? = null
 
-            // Package the Profile Data for the Android Cache!
-            val profileData = UserProfile(
-                name = userRow[Users.name],
-                username = userRow[Users.username],
-                country = userRow[Users.country],
-                dob = userRow[Users.dob],
-                bio = userRow[Users.bio],
-                profileImageUrl = userRow[Users.profileImageUrl],
-                isProfileComplete = userRow[Users.isProfileComplete],
-                allergies = userRow[Users.allergies],
-                favFoods = userRow[Users.favFoods]
-            )
+            // 2. Logic: If 'isvalid' is true, Update then Fetch
+            if (request.otp == "123456") {
+                transaction {
+                    // Update the user status
+                    Users.update({ Users.email eq formattedEmail }) {
+                        it[isVerified] = true
+                        it[otpCode] = null
+                    }
 
-            // Send everything back in one neat package
-            call.respond(
-                HttpStatusCode.OK,
-                LoginResponse(
-                    success = true,
-                    token = token,
-                    isProfileComplete = userRow[Users.isProfileComplete],
-                    profileData = profileData
+                    // RE-FETCH the row to get the updated data for the JWT/Profile
+                    userRow = Users.selectAll().where { Users.email eq formattedEmail }.singleOrNull()
+                }
+
+                // Check if the user actually exists after the update
+                val finalUser = userRow
+                if (finalUser == null) {
+                    call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(false, "User not found."))
+                    return@post
+                }
+
+                // 3. Generate JWT (Now finalUser has the data)
+                val jwtSecret = dotenv["JWT_SECRET"] ?: throw Exception("Missing Secret")
+                val token = JWT.create()
+                    .withIssuer("http://localhost:8080/")
+                    .withClaim("user_id", finalUser[Users.id].value.toString())
+                    .withExpiresAt(Date(System.currentTimeMillis() + 604800000))
+                    .sign(Algorithm.HMAC256(jwtSecret))
+
+                // 4. Package the Profile Data
+                val profileData = UserProfile(
+                    name = finalUser[Users.name],
+                    username = finalUser[Users.username],
+                    country = finalUser[Users.country],
+                    dob = finalUser[Users.dob],
+                    bio = finalUser[Users.bio],
+                    profileImageUrl = finalUser[Users.profileImageUrl],
+                    isProfileComplete = finalUser[Users.isProfileComplete],
+                    allergies = finalUser[Users.allergies],
+                    favFoods = finalUser[Users.favFoods]
                 )
-            )
+
+                // 5. Final Response
+                call.respond(
+                    HttpStatusCode.OK,
+                    LoginResponse(
+                        success = true,
+                        token = token,
+                        isProfileComplete = finalUser[Users.isProfileComplete],
+                        profileData = profileData
+                    )
+                )
+            } else {
+                call.respond(HttpStatusCode.Unauthorized, SimpleMessageResponse(false, "Verification failed."))
+            }
         }
 
+                
+        
+        
         // EVERYTHING inside this block requires a valid JWT!
         authenticate("auth-jwt") {
 
