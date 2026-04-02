@@ -214,6 +214,7 @@ fun Application.configureRouting() {
 
                 // 4. Package the Profile Data
                 val profileData = UserProfile(
+                    email = finalUser[Users.email],
                     name = finalUser[Users.name],
                     username = finalUser[Users.username],
                     country = finalUser[Users.country],
