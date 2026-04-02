@@ -388,7 +388,9 @@ fun Application.configureRouting() {
                     profileImageUrl = userRow[Users.profileImageUrl],
                     isProfileComplete = userRow[Users.isProfileComplete],
                     allergies = userRow[Users.allergies],
-                    favFoods = userRow[Users.favFoods]
+                    favFoods = userRow[Users.favFoods],
+                    email = userRow[Users.email]
+
                 )
 
                 // 4. Send it back!
