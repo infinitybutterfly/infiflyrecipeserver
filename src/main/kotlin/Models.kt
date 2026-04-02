@@ -65,6 +65,7 @@ data class LoginResponse(
 
 @Serializable
 data class UserProfile(
+    val email: String?,
     val name: String?,
     val username: String?,
     val country: String?,
