@@ -520,6 +520,35 @@ fun Application.configureRouting() {
                 }
             }
 
+            // Delete a specific recipe by ID
+            delete("/api/recipes/{id}") {
+                // Verify
+                val principal = call.principal<JWTPrincipal>()
+                val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+                    ?: return@delete call.respond(HttpStatusCode.Unauthorized)
+
+                // Get the recipe ID from the URL
+                val recipeId = call.parameters["id"]?.toIntOrNull()
+                if (recipeId == null) {
+                    call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Invalid recipe ID"))
+                    return@delete
+                }
+
+                // Delete from the database
+                val deletedRowsCount = transaction {
+                    Recipes.deleteWhere {
+                        (Recipes.id eq recipeId) and (Recipes.userId eq loggedInUserId)
+                    }
+                }
+
+                // Respond to Android
+                if (deletedRowsCount > 0) {
+                    call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "Recipe deleted successfully"))
+                } else {
+                    call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(false, "Recipe not found or you don't have permission to delete it"))
+                }
+            }
+
             get("/api/recipes/search") {
                 val query = call.request.queryParameters["q"]?.lowercase()
 
