@@ -540,7 +540,7 @@ fun Application.configureRouting() {
                         (Recipes.id eq recipeId) and (Recipes.userId eq loggedInUserId)
                     }
                 }
-
+                
                 // Respond to Android
                 if (deletedRowsCount > 0) {
                     call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "Recipe deleted successfully"))
