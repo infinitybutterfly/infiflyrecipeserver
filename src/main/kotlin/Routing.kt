@@ -27,6 +27,7 @@ import org.apache.commons.mail.SimpleEmail
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.String
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 // import java.util.Properties
 // import javax.mail.*
 // import javax.mail.internet.*
