@@ -73,7 +73,9 @@ data class LoginResponse(
 data class RecipeSummary(
     val id: String,
     val imageUrl: String?,
-    val recipeName: String
+    val recipeName: String,
+    val countryName: String,
+    val category: String
 )
 
 @Serializable
