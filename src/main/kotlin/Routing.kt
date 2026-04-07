@@ -420,7 +420,11 @@ fun Application.configureRouting() {
 
                 // 2. Query the database
                 val profiles = transaction {
-                    var query = Users.selectAll()
+//                    Get All the Users
+//                    var query = Users.selectAll()
+
+//                    Get only those user whose profile is completed = true
+                    var query = Users.selectAll().where { Users.isProfileComplete eq true }
 
                     // 3. If user typed a search term, filter the database
                     if (!searchQuery.isNullOrBlank()) {
@@ -432,8 +436,30 @@ fun Application.configureRouting() {
                         }
                     }
 
-                    // 4. Apply the limit, offset, and map the rows to my data class
-                    query.limit(limit, offset).map { userRow ->
+                    val fetchedUserRows = query.limit(limit, offset).toList()
+
+                    val userIds = fetchedUserRows.map { it[Users.id] }
+
+                    // 3. Batch-fetch ALL recipes belonging to those specific users in ONE query!
+                    val userRecipesMap = if (userIds.isNotEmpty()) {
+                        Recipes.selectAll()
+                            .where { Recipes.userId inList userIds }
+                            // Group them by the User ID so we can easily attach them below
+                            .groupByTo(mutableMapOf(), { it[Recipes.userId] }) { recipeRow ->
+                                RecipeSummary(
+                                    id = recipeRow[Recipes.id].toString(),
+                                    imageUrl = recipeRow[Recipes.imageUrl],
+                                    recipeName = recipeRow[Recipes.name]
+                                )
+                            }
+                    } else {
+                        emptyMap()
+                    }
+
+                    // 4. Map the UserRows to your Data Class, and attach their recipes!
+                    fetchedUserRows.map { userRow ->
+                        val currentUserId = userRow[Users.id]
+
                         UserProfile(
                             name = userRow[Users.name],
                             username = userRow[Users.username],
@@ -444,9 +470,28 @@ fun Application.configureRouting() {
                             isProfileComplete = userRow[Users.isProfileComplete],
                             allergies = userRow[Users.allergies],
                             favFoods = userRow[Users.favFoods],
-                            email = userRow[Users.email] 
+                            email = "", // Kept blank for security!
+
+                            // Attach the recipes we found! If they have none, use an empty list.
+                            recipes = userRecipesMap[currentUserId] ?: emptyList()
                         )
                     }
+                    
+                    // // 4. Apply the limit, offset, and map the rows to my data class
+                    // query.limit(limit, offset).map { userRow ->
+                    //     UserProfile(
+                    //         name = userRow[Users.name],
+                    //         username = userRow[Users.username],
+                    //         country = userRow[Users.country],
+                    //         dob = userRow[Users.dob],
+                    //         bio = userRow[Users.bio],
+                    //         profileImageUrl = userRow[Users.profileImageUrl],
+                    //         isProfileComplete = userRow[Users.isProfileComplete],
+                    //         allergies = userRow[Users.allergies],
+                    //         favFoods = userRow[Users.favFoods],
+                    //         email = userRow[Users.email] 
+                    //     )
+                    // }
                 }
 
                 // 5. Send the list back to the app!
