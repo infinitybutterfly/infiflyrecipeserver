@@ -70,6 +70,13 @@ data class LoginResponse(
 )
 
 @Serializable
+data class RecipeSummary(
+    val id: String,
+    val imageUrl: String?,
+    val recipeName: String
+)
+
+@Serializable
 data class UserProfile(
     val email: String?,
     val name: String?,
@@ -80,7 +87,10 @@ data class UserProfile(
     val profileImageUrl: String?,
     val isProfileComplete: Boolean,
     val favFoods: String?,
-    val allergies: String?
+    val allergies: String?,
+
+    val recipes: List<RecipeSummary> = emptyList()
+
 )
 
 @Serializable
