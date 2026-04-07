@@ -399,6 +399,61 @@ fun Application.configureRouting() {
                 call.respond(HttpStatusCode.OK, profileData)
             }
 
+            get("/api/profile") {
+                // 1. Who is asking? Extract ID from the JWT token
+                val principal = call.principal<JWTPrincipal>()
+                val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.Unauthorized, SimpleMessageResponse(false, "Invalid token"))
+
+                val callerExists = transaction {
+                    Users.selectAll().where { Users.id eq loggedInUserId }.singleOrNull() != null
+                }
+
+                if (!callerExists) {
+                    call.respond(HttpStatusCode.Unauthorized, SimpleMessageResponse(false, "User account no longer exists"))
+                    return@get
+                }
+
+                val searchQuery = call.request.queryParameters["search"]
+                val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 50
+                val offset = call.request.queryParameters["offset"]?.toLongOrNull() ?: 0L
+
+                // 2. Query the database
+                val profiles = transaction {
+                    var query = Users.selectAll()
+
+                    // 3. If user typed a search term, filter the database
+                    if (!searchQuery.isNullOrBlank()) {
+                        val searchPattern = "%${searchQuery.lowercase()}%"
+
+                        query = query.where {
+                            (Users.name.lowerCase() like searchPattern) or
+                                    (Users.username.lowerCase() like searchPattern)
+                        }
+                    }
+
+                    // 4. Apply the limit, offset, and map the rows to my data class
+                    query.limit(limit, offset).map { userRow ->
+                        UserProfile(
+                            name = userRow[Users.name],
+                            username = userRow[Users.username],
+                            country = userRow[Users.country],
+                            dob = userRow[Users.dob],
+                            bio = userRow[Users.bio],
+                            profileImageUrl = userRow[Users.profileImageUrl],
+                            isProfileComplete = userRow[Users.isProfileComplete],
+                            allergies = userRow[Users.allergies],
+                            favFoods = userRow[Users.favFoods],
+                            email = userRow[Users.email] 
+                        )
+                    }
+                }
+
+                // 5. Send the list back to the app!
+//                call.respond(HttpStatusCode.OK, mapOf("success" to true, "results" to profiles))
+                call.respond(HttpStatusCode.OK, ProfileListResponse(success = true, results = profiles))
+            }
+
 
             // --- 2. GET THE RECIPE FEED ---
             get("/api/recipes") {
