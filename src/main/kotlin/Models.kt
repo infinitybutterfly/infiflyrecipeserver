@@ -49,6 +49,12 @@ object HelpTickets : IntIdTable() {
 // --- API DATA MODELS ---
 
 @Serializable
+data class ProfileListResponse(
+    val success: Boolean,
+    val results: List<UserProfile>
+)
+
+@Serializable
 data class EmailOtpRequest(val email: String)
 
 @Serializable
