@@ -449,7 +449,9 @@ fun Application.configureRouting() {
                                 RecipeSummary(
                                     id = recipeRow[Recipes.id].toString(),
                                     imageUrl = recipeRow[Recipes.imageUrl],
-                                    recipeName = recipeRow[Recipes.name]
+                                    recipeName = recipeRow[Recipes.name],
+                                    category = recipeRow[Recipes.category],
+                                    countryName = recipeRow[Recipes.country]
                                 )
                             }
                     } else {
