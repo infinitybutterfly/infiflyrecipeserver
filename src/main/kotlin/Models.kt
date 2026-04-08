@@ -33,7 +33,7 @@ object Recipes : IntIdTable() {
     val ingredientsName = text("ingredients_name")
     val ingredientsQuantity = text("ingredients_quantity")
     val imageUrl = varchar("image_url", 255)
-    val userName = varchar("user_name", 255).default("Unknown Chef")
+    val userName = varchar("user_name", 255).nullable
 
 
     val userId = reference("user_id", Users) // Links recipe to the creator
