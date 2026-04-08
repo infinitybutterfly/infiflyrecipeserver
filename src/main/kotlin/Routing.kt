@@ -535,6 +535,65 @@ fun Application.configureRouting() {
                 call.respond(HttpStatusCode.OK, RecipeFeedResponse(success = true, recipes = allRecipes))
             }
 
+              get("/api/profile/{username}") {
+                // 1. Grab the username from the URL (e.g., /api/profile/ChefAnkit)
+                val targetUsername = call.parameters["username"]
+
+                if (targetUsername.isNullOrBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Username is required"))
+                    return@get
+                }
+
+                // 2. Query the database for that EXACT username
+                val specificUserProfile = transaction {
+                    val userRow = Users.selectAll()
+                        .where { Users.username.lowerCase() eq targetUsername.lowercase() }
+                        .singleOrNull()
+
+                    if (userRow != null) {
+                        val currentUserId = userRow[Users.id]
+
+                        // Fetch all recipes uploaded by this specific user
+                        val userRecipes = Recipes.selectAll()
+                            .where { Recipes.userId eq currentUserId }
+                            .map { recipeRow ->
+                                RecipeSummary(
+                                    id = recipeRow[Recipes.id].toString(),
+                                    imageUrl = recipeRow[Recipes.imageUrl],
+                                    recipeName = recipeRow[Recipes.name], // Match RecipeSummary data class parameters!
+                                    category = recipeRow[Recipes.category],
+                                    countryName = recipeRow[Recipes.country]
+                                )
+                            }
+
+                        // Map the user data and attach their recipes
+                        UserProfile(
+                            name = userRow[Users.name],
+                            username = userRow[Users.username],
+                            country = userRow[Users.country],
+                            dob = userRow[Users.dob],
+                            bio = userRow[Users.bio],
+                            profileImageUrl = userRow[Users.profileImageUrl],
+                            isProfileComplete = userRow[Users.isProfileComplete],
+                            allergies = userRow[Users.allergies],
+                            favFoods = userRow[Users.favFoods],
+                            email = "", // Keep blank so people can't steal emails!
+                            recipes = userRecipes
+                        )
+                    } else {
+                        null
+                    }
+                }
+
+                // 3. Return the result to Android
+                if (specificUserProfile != null) {
+                    call.respond(HttpStatusCode.OK, specificUserProfile)
+                } else {
+                    call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(success = false, message = "Chef not found"))
+                }
+            }
+
+
             get("/api/recipes/my") {
                 // 1. Who is asking? Extract their ID from the JWT token
                 val principal = call.principal<JWTPrincipal>()
