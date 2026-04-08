@@ -671,7 +671,9 @@ fun Application.configureRouting() {
 
                 // 2. Query the database for that exact row
                 val singleRecipe = transaction {
-                    val row = Recipes.selectAll().where { Recipes.id eq recipeId }.singleOrNull()
+                    // val row = Recipes.selectAll().where { Recipes.id eq recipeId }.singleOrNull()
+                    val row = (Recipes innerJoin Users).selectAll().where { Recipes.id eq recipeId }.singleOrNull()
+
 
                     // 3. If we found it, map it to your Data Class
                     if (row != null) {
@@ -685,7 +687,7 @@ fun Application.configureRouting() {
                             instructions = row[Recipes.instructions],
                             ingredientsName = row[Recipes.ingredientsName],
                             ingredientsQuantity = row[Recipes.ingredientsQuantity],
-                            userName = row[Recipes.userName]
+                            userName = row[Users.username]
                         )
                     } else {
                         null
