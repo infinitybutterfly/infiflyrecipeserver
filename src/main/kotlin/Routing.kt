@@ -28,6 +28,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.String
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.like
 import org.jetbrains.exposed.sql.*
 // import java.util.Properties
 // import javax.mail.*
@@ -430,9 +431,15 @@ fun Application.configureRouting() {
                     if (!searchQuery.isNullOrBlank()) {
                         val searchPattern = "%${searchQuery.lowercase()}%"
 
-                        query = query.where {
-                            (Users.name.lowerCase() like searchPattern) or
+                        // query = query.andWhere {
+                        //     (Users.name.lowerCase() like searchPattern) or
+                        //             (Users.username.lowerCase() like searchPattern)
+                        // }
+                        query = query.adjustWhere {
+                            val searchRule = (Users.name.lowerCase() like searchPattern) or
                                     (Users.username.lowerCase() like searchPattern)
+
+                            this?.and(searchRule) ?: searchRule
                         }
                     }
 
