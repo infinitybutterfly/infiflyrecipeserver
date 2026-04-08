@@ -660,6 +660,50 @@ fun Application.configureRouting() {
                 }
             }
 
+             get("/api/recipes/{id}") {
+                // 1. Grab the ID from the URL (e.g., /api/recipes/4)
+                val recipeId = call.parameters["id"]?.toIntOrNull()
+
+                if (recipeId == null) {
+                    call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(success = false, message = "Invalid Recipe ID format"))
+                    return@get
+                }
+
+                // 2. Query the database for that exact row
+                val singleRecipe = transaction {
+                    val row = Recipes.selectAll().where { Recipes.id eq recipeId }.singleOrNull()
+
+                    // 3. If we found it, map it to your Data Class
+                    if (row != null) {
+                        RecipeResponse(
+                            id = row[Recipes.id].value, // Note: Use .value if your ID is an EntityID!
+                            name = row[Recipes.name],
+                            imageUrl = row[Recipes.imageUrl],
+                            category = row[Recipes.category],
+                            country = row[Recipes.country],
+                            tags = row[Recipes.tags],
+                            instructions = row[Recipes.instructions],
+                            ingredientsName = row[Recipes.ingredientsName],
+                            ingredientsQuantity = row[Recipes.ingredientsQuantity],
+                            userName = row[Recipes.userName]
+                        )
+                    } else {
+                        null
+                    }
+                }
+
+                // 4. Return the result
+                if (singleRecipe != null) {
+                    // Option A: Just return the recipe object directly
+                    call.respond(HttpStatusCode.OK, singleRecipe)
+
+                    // Option B (If you want a wrapper):
+                    // call.respond(HttpStatusCode.OK, mapOf("success" to true, "recipe" to singleRecipe))
+                } else {
+                    call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(success = false, message = "Recipe not found"))
+                }
+            }
+
             get("/api/recipes/search") {
                 val query = call.request.queryParameters["q"]?.lowercase()
 
