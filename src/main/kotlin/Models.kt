@@ -10,9 +10,9 @@ object Users : IntIdTable() {
     val isVerified = bool("is_verified").default(false)
 
     // Profile Data (For your Android Cache)
-    val name = varchar("name", 100).nullable()
-    val username = varchar("username", 50).nullable()
-    val country = varchar("country", 50).nullable()
+    val name = varchar("name", 30).nullable()
+    val username = varchar("username", 20).nullable().uniqueIndex("idx_unique_username")
+    val country = varchar("country", 20).nullable()
     val dob = varchar("dob", 20).nullable()
     val bio = text("bio").nullable()
     val isProfileComplete = bool("is_profile_complete").default(false)
