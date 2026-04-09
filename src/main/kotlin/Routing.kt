@@ -33,6 +33,7 @@ import org.jetbrains.exposed.sql.*
 // import java.util.Properties
 // import javax.mail.*
 // import javax.mail.internet.*
+import io.ktor.utils.io.toByteArray
 
 // 1. Load the hidden variables from your .env file
 val dotenv = dotenv { ignoreIfMissing = true }
@@ -718,6 +719,93 @@ fun Application.configureRouting() {
                     call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(false, "Recipe not found or you don't have permission to delete it"))
                 }
             }
+
+             // --- EDIT A RECIPE ---
+            put("/api/recipes/{id}") {
+                // 1. Who is asking? Extract ID from the JWT token
+                val principal = call.principal<JWTPrincipal>()
+                val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+                    ?: return@put call.respond(HttpStatusCode.Unauthorized)
+
+                // 2. Get the Recipe ID from the URL
+                val recipeId = call.parameters["id"]?.toIntOrNull()
+                if (recipeId == null) {
+                    call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Invalid recipe ID"))
+                    return@put
+                }
+
+                // 3. SECURITY CHECK: Does this user actually own this recipe?
+                val isOwner = transaction {
+                    Recipes.selectAll()
+                        .where { (Recipes.id eq recipeId) and (Recipes.userId eq loggedInUserId) }
+                        .singleOrNull() != null
+                }
+
+                if (!isOwner) {
+                    call.respond(HttpStatusCode.Forbidden, SimpleMessageResponse(false, "You do not have permission to edit this recipe."))
+                    return@put
+                }
+
+                // 4. Grab the incoming data
+                val multipartData = call.receiveMultipart()
+                var uploadedImageUrl: String? = null
+
+                var rName: String? = null; var rCountry: String? = null
+                var rCategory: String? = null; var rTags: String? = null
+                var rInstructions: String? = null; var rIngNames: String? = null
+                var rIngQuants: String? = null
+
+                multipartData.forEachPart { part ->
+                    when (part) {
+                        is PartData.FormItem -> {
+                            when (part.name) {
+                                "recipe_name" -> rName = part.value
+                                "country" -> rCountry = part.value
+                                "category" -> rCategory = part.value
+                                "tags" -> rTags = part.value
+                                "instructions" -> rInstructions = part.value
+                                "ingredients_name" -> rIngNames = part.value
+                                "ingredients_quantity" -> rIngQuants = part.value
+                            }
+                        }
+                        is PartData.FileItem -> {
+                            // Using the new non-blocking provider() method!
+//                            val fileBytes = part.provider().asStream().readBytes()
+                            // The new Ktor 3 way!
+                            val fileBytes = part.provider().toByteArray()
+                            if (fileBytes.isNotEmpty()) {
+                                val tempFile = File.createTempFile("recipe_edit_", part.originalFileName)
+                                tempFile.writeBytes(fileBytes)
+                                val uploadResult = cloudinary.uploader().upload(tempFile, ObjectUtils.emptyMap())
+                                uploadedImageUrl = uploadResult["secure_url"] as String
+                                tempFile.delete()
+                            }
+                        }
+                        else -> {}
+                    }
+                    part.dispose()
+                }
+
+                // 5. Update the Database!
+                transaction {
+                    Recipes.update({ Recipes.id eq recipeId }) {
+                        // We use .let to ONLY update the fields that were actually sent!
+                        rName?.let { name -> if(name.isNotBlank()) it[Recipes.name] = name }
+                        rCountry?.let { country -> if(country.isNotBlank()) it[Recipes.country] = country }
+                        rCategory?.let { category -> if(category.isNotBlank()) it[Recipes.category] = category }
+                        rTags?.let { tags -> if(tags.isNotBlank()) it[Recipes.tags] = tags }
+                        rInstructions?.let { inst -> if(inst.isNotBlank()) it[Recipes.instructions] = inst }
+                        rIngNames?.let { ingName -> if(ingName.isNotBlank()) it[Recipes.ingredientsName] = ingName }
+                        rIngQuants?.let { ingQuant -> if(ingQuant.isNotBlank()) it[Recipes.ingredientsQuantity] = ingQuant }
+
+                        // Only update the image if a new one was successfully uploaded
+                        uploadedImageUrl?.let { url -> it[Recipes.imageUrl] = url }
+                    }
+                }
+
+                call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "Recipe updated successfully!"))
+            }
+
 
              get("/api/recipes/{id}") {
                 // 1. Grab the ID from the URL (e.g., /api/recipes/4)
