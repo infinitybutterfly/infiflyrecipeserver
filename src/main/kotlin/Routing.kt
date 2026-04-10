@@ -594,27 +594,6 @@ fun Application.configureRouting() {
                 }
             }
 
-              // --- CHECK IF USERNAME IS AVAILABLE ---
-            get("/api/check-username") {
-                val queryUsername = call.request.queryParameters["username"]?.trim()
-
-                if (queryUsername.isNullOrBlank()) {
-                    call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Username required"))
-                    return@get
-                }
-
-                // Check if ANY row in the database already has this exact username
-                val isTaken = transaction {
-                    Users.selectAll()
-                        .where { Users.username.lowerCase() eq queryUsername.lowercase() }
-                        .singleOrNull() != null
-                }
-
-                // If it is NOT taken, it is available!
-                call.respond(HttpStatusCode.OK, mapOf("available" to !isTaken))
-            }
-            
-
             get("/api/recipes/my") {
                 // 1. Who is asking? Extract their ID from the JWT token
                 val principal = call.principal<JWTPrincipal>()
@@ -967,6 +946,27 @@ fun Application.configureRouting() {
 
         } // End of authenticate block
 
+
+              // --- CHECK IF USERNAME IS AVAILABLE ---
+            get("/api/check-username") {
+                val queryUsername = call.request.queryParameters["username"]?.trim()
+
+                if (queryUsername.isNullOrBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Username required"))
+                    return@get
+                }
+
+                // Check if ANY row in the database already has this exact username
+                val isTaken = transaction {
+                    Users.selectAll()
+                        .where { Users.username.lowerCase() eq queryUsername.lowercase() }
+                        .singleOrNull() != null
+                }
+
+                // If it is NOT taken, it is available!
+                call.respond(HttpStatusCode.OK, mapOf("available" to !isTaken))
+            }
+            
 
         // ---  GET THE RECIPE FEED WITHOUT AUTH ---
         get("/api/recipeswoa") {
