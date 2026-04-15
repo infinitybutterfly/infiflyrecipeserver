@@ -108,7 +108,9 @@ data class RecipeResponse(
     val instructions: String,
     val ingredientsName: String,
     val ingredientsQuantity: String,
-    val userName: String?
+    val userName: String?,
+
+    val isLocked: Boolean = false
 )
 
 //@Serializable
