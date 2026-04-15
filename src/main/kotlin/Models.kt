@@ -8,6 +8,10 @@ object Users : IntIdTable() {
     val email = varchar("email", 100).uniqueIndex()
     val otpCode = varchar("otp_code", 6).nullable()
     val isVerified = bool("is_verified").default(false)
+    
+    // Check if the account is premium or not
+    val isPremium = bool("is_premium").default(false)
+    val freeViews = integer("free_views").default(0)
 
     // Profile Data (For your Android Cache)
     val name = varchar("name", 30).nullable()
