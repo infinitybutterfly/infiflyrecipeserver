@@ -293,6 +293,7 @@ fun Application.configureRouting() {
 //                call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "Profile updated successfully!"))
 //            }
 
+            
             post("/api/profile/update") {
                 // 1. Verify the JWT token and get the User ID
                 val principal = call.principal<JWTPrincipal>()
@@ -311,6 +312,7 @@ fun Application.configureRouting() {
                 var rFavFoods: String? = null
                 var rAllergies: String? = null
                 var rIsComplete = false
+                var rIsLocked: Boolean? = null
 
                 multipartData.forEachPart { part ->
                     when (part) {
@@ -324,6 +326,7 @@ fun Application.configureRouting() {
                                 "fav_foods" -> rFavFoods = part.value
                                 "allergies" -> rAllergies = part.value
                                 "is_profile_complete" -> rIsComplete = part.value.toBooleanStrictOrNull() ?: false
+                                "is_locked" -> rIsLocked = part.value.toBooleanStrictOrNull()
                             }
                         }
                         is PartData.FileItem -> {
@@ -357,12 +360,59 @@ fun Application.configureRouting() {
                             it[Users.isProfileComplete] = true
                         }
 
+                        rIsLocked?.let { lockedStatus -> it[Users.isPremium] = lockedStatus }
+
                         // Only update the image column if they actually uploaded a new picture
                         uploadedImageUrl?.let { url -> it[Users.profileImageUrl] = url }
                     }
                 }
 
                 call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "Profile updated successfully!"))
+            }
+
+            //Purchase isLocked Check
+            //No Security
+//            post("/api/subscription/upgrade") {
+//                val principal = call.principal<JWTPrincipal>()
+//                val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+//                    ?: return@post call.respond(HttpStatusCode.Unauthorized)
+//
+//                transaction {
+//                    Users.update({ Users.id eq loggedInUserId }) {
+//                        it[isPremium] = true
+//                    }
+//                }
+//
+//                call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "Welcome to Premium!"))
+//            }
+            post("/api/subscription/upgrade") {
+                val principal = call.principal<JWTPrincipal>()
+                val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.Unauthorized)
+
+                // 1. Receive the PIN from Android
+                val request = try {
+                    call.receive<PinUpgradeRequest>()
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Missing PIN data"))
+                    return@post
+                }
+
+                // 2. CHECK THE PIN!
+                if (request.pin != "12345") {
+                    // Wrong PIN! Reject the upgrade.
+                    call.respond(HttpStatusCode.Forbidden, SimpleMessageResponse(false, "Invalid Admin PIN!"))
+                    return@post
+                }
+
+                // 3. PIN is correct! Upgrade their database row.
+                transaction {
+                    Users.update({ Users.id eq loggedInUserId }) {
+                        it[isPremium] = true
+                    }
+                }
+
+                call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "Welcome to Premium!"))
             }
 
             // --- 1. GET THE LOGGED-IN USER'S PROFILE ---
@@ -393,8 +443,9 @@ fun Application.configureRouting() {
                     isProfileComplete = userRow[Users.isProfileComplete],
                     allergies = userRow[Users.allergies],
                     favFoods = userRow[Users.favFoods],
-                    email = userRow[Users.email]
-
+                    email = userRow[Users.email],
+                    isLocked = userRow[Users.isPremium],
+                    viewcount = userRow[Users.freeViews]
                 )
 
                 // 4. Send it back!
@@ -417,6 +468,9 @@ fun Application.configureRouting() {
                 }
 
                 val searchQuery = call.request.queryParameters["search"]
+
+                // We use limit and offset for pagination ("more profiles") so we don't crash
+                // the server by sending 100,000 users at once! Default is 50.
                 val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 50
                 val offset = call.request.queryParameters["offset"]?.toLongOrNull() ?: 0L
 
@@ -428,14 +482,15 @@ fun Application.configureRouting() {
 //                    Get only those user whose profile is completed = true
                     var query = Users.selectAll().where { Users.isProfileComplete eq true }
 
-                    // 3. If user typed a search term, filter the database
+                    // 3. If they typed a search term, filter the database
                     if (!searchQuery.isNullOrBlank()) {
                         val searchPattern = "%${searchQuery.lowercase()}%"
 
-                        // query = query.andWhere {
-                        //     (Users.name.lowerCase() like searchPattern) or
-                        //             (Users.username.lowerCase() like searchPattern)
-                        // }
+//                        query = query.andWhere {
+//                            (Users.name.lowerCase() like searchPattern) or
+//                                    (Users.username.lowerCase() like searchPattern)
+//                        }
+
                         query = query.adjustWhere {
                             val searchRule = (Users.name.lowerCase() like searchPattern) or
                                     (Users.username.lowerCase() like searchPattern)
@@ -481,27 +536,28 @@ fun Application.configureRouting() {
                             allergies = userRow[Users.allergies],
                             favFoods = userRow[Users.favFoods],
                             email = "", // Kept blank for security!
+                            isLocked = userRow[Users.isPremium],
+                            viewcount = userRow[Users.freeViews],
 
                             // Attach the recipes we found! If they have none, use an empty list.
                             recipes = userRecipesMap[currentUserId] ?: emptyList()
                         )
                     }
-                    
-                    // // 4. Apply the limit, offset, and map the rows to my data class
-                    // query.limit(limit, offset).map { userRow ->
-                    //     UserProfile(
-                    //         name = userRow[Users.name],
-                    //         username = userRow[Users.username],
-                    //         country = userRow[Users.country],
-                    //         dob = userRow[Users.dob],
-                    //         bio = userRow[Users.bio],
-                    //         profileImageUrl = userRow[Users.profileImageUrl],
-                    //         isProfileComplete = userRow[Users.isProfileComplete],
-                    //         allergies = userRow[Users.allergies],
-                    //         favFoods = userRow[Users.favFoods],
-                    //         email = userRow[Users.email] 
-                    //     )
-                    // }
+//                    // 4. Apply the limit, offset, and map the rows to your data class
+//                    query.limit(limit, offset).map { userRow ->
+//                        UserProfile(
+//                            name = userRow[Users.name],
+//                            username = userRow[Users.username],
+//                            country = userRow[Users.country],
+//                            dob = userRow[Users.dob],
+//                            bio = userRow[Users.bio],
+//                            profileImageUrl = userRow[Users.profileImageUrl],
+//                            isProfileComplete = userRow[Users.isProfileComplete],
+//                            allergies = userRow[Users.allergies],
+//                            favFoods = userRow[Users.favFoods],
+//                            email = userRow[Users.email] // ⚠️ See security note below!
+//                        )
+//                    }
                 }
 
                 // 5. Send the list back to the app!
@@ -509,34 +565,8 @@ fun Application.configureRouting() {
                 call.respond(HttpStatusCode.OK, ProfileListResponse(success = true, results = profiles))
             }
 
-
-            // --- 2. GET THE RECIPE FEED ---
-            get("/api/recipes") {
-                // Fetch all recipes from the database (We'll limit it to 50 so it doesn't crash the app if you have millions later!)
-                val allRecipes = transaction {
-                    Recipes.selectAll().limit(50).map { row ->
-                        RecipeResponse(
-                            id = row[Recipes.id].value,
-                            name = row[Recipes.name],
-                            imageUrl = row[Recipes.imageUrl],
-                            category = row[Recipes.category],
-                            country = row[Recipes.country],
-                            tags = row[Recipes.tags],
-                            instructions = row[Recipes.instructions] ,
-                        ingredientsName = row[Recipes.ingredientsName] ,
-                        ingredientsQuantity = row[Recipes.ingredientsQuantity],
-                            userName = row[Users.name]
-                        )
-                    }
-                }
-
-                // Send the list back to Android
-//                call.respond(HttpStatusCode.OK, mapOf("success" to true, "recipes" to allRecipes))
-                // GOOD: Using our strict, predictable Data Class
-                call.respond(HttpStatusCode.OK, RecipeFeedResponse(success = true, recipes = allRecipes))
-            }
-
-              get("/api/profile/{username}") {
+            // --- GET A SPECIFIC USER PROFILE BY EXACT USERNAME ---
+            get("/api/profile/{username}") {
                 // 1. Grab the username from the URL (e.g., /api/profile/ChefAnkit)
                 val targetUsername = call.parameters["username"]
 
@@ -547,6 +577,7 @@ fun Application.configureRouting() {
 
                 // 2. Query the database for that EXACT username
                 val specificUserProfile = transaction {
+                    // Use 'eq' for an exact match (ignoring case)
                     val userRow = Users.selectAll()
                         .where { Users.username.lowerCase() eq targetUsername.lowercase() }
                         .singleOrNull()
@@ -561,7 +592,7 @@ fun Application.configureRouting() {
                                 RecipeSummary(
                                     id = recipeRow[Recipes.id].toString(),
                                     imageUrl = recipeRow[Recipes.imageUrl],
-                                    recipeName = recipeRow[Recipes.name], // Match RecipeSummary data class parameters!
+                                    recipeName = recipeRow[Recipes.name], // Match your RecipeSummary data class parameters!
                                     category = recipeRow[Recipes.category],
                                     countryName = recipeRow[Recipes.country]
                                 )
@@ -578,7 +609,9 @@ fun Application.configureRouting() {
                             isProfileComplete = userRow[Users.isProfileComplete],
                             allergies = userRow[Users.allergies],
                             favFoods = userRow[Users.favFoods],
-                            email = "", // Keep blank so people can't steal emails!
+                            email = "", // Keep blank so people can't steal emails!,
+                            isLocked = userRow[Users.isPremium],
+                            viewcount = userRow[Users.freeViews],
                             recipes = userRecipes
                         )
                     } else {
@@ -594,6 +627,99 @@ fun Application.configureRouting() {
                 }
             }
 
+            // --- CHECK IF USERNAME IS AVAILABLE ---
+            get("/api/check-username") {
+                val queryUsername = call.request.queryParameters["username"]?.trim()
+
+                if (queryUsername.isNullOrBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Username required"))
+                    return@get
+                }
+
+                // Check if ANY row in the database already has this exact username
+                val isTaken = transaction {
+                    Users.selectAll()
+                        .where { Users.username.lowerCase() eq queryUsername.lowercase() }
+                        .singleOrNull() != null
+                }
+
+                // If it is NOT taken, it is available!
+                call.respond(HttpStatusCode.OK, mapOf("available" to !isTaken))
+            }
+
+
+            // --- 2. GET THE RECIPE FEED ---
+//            get("/api/recipes") {
+//                // Fetch all recipes from the database (We'll limit it to 50 so it doesn't crash the app if you have millions later!)
+//                val allRecipes = transaction {
+//                    Recipes.selectAll().limit(50).map { row ->
+//                        RecipeResponse(
+//                            id = row[Recipes.id].value,
+//                            name = row[Recipes.name],
+//                            imageUrl = row[Recipes.imageUrl],
+//                            category = row[Recipes.category],
+//                            country = row[Recipes.country],
+//                            tags = row[Recipes.tags],
+//                            instructions = row[Recipes.instructions] ,
+//                        ingredientsName = row[Recipes.ingredientsName] ,
+//                        ingredientsQuantity = row[Recipes.ingredientsQuantity],
+//                            userName = row[Users.name],
+//                            viewcount = row[Users.freeViews],
+//                            isLocked = row[Users.isPremium]
+//                        )
+//                    }
+//                }
+//
+//                // Send the list back to Android
+////                call.respond(HttpStatusCode.OK, mapOf("success" to true, "recipes" to allRecipes))
+//                // GOOD: Using our strict, predictable Data Class
+//                call.respond(HttpStatusCode.OK, RecipeFeedResponse(success = true , recipes = allRecipes))
+//            }
+
+            get("/api/recipes") {
+                // 1. Who is asking? We need their ID to know their paywall status!
+                val principal = call.principal<JWTPrincipal>()
+                val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.Unauthorized, SimpleMessageResponse(false, "Invalid token"))
+
+                val responseData = transaction {
+
+                    // 2. Fetch the logged-in user's paywall stats
+                    val userRow = Users.selectAll().where { Users.id eq loggedInUserId }.singleOrNull()
+                    val isPremium = userRow?.get(Users.isPremium) ?: false
+                    val freeViews = userRow?.get(Users.freeViews) ?: 0
+
+                    // 3. Fetch all recipes (🚨 Added innerJoin so Users.username doesn't crash!)
+                    val allRecipes = (Recipes innerJoin Users)
+                        .selectAll()
+                        .limit(50)
+                        .map { row ->
+                            RecipeResponse(
+                                id = row[Recipes.id].value,
+                                name = row[Recipes.name],
+                                imageUrl = row[Recipes.imageUrl],
+                                category = row[Recipes.category],
+                                country = row[Recipes.country],
+                                tags = row[Recipes.tags],
+                                instructions = row[Recipes.instructions],
+                                ingredientsName = row[Recipes.ingredientsName],
+                                ingredientsQuantity = row[Recipes.ingredientsQuantity],
+                                userName = row[Users.username], // Make sure your DB column is Users.username (or .name)
+                                isLocked = row[Users.isPremium]                            )
+                        }
+
+                    // 4. 🚨 Build the response with the required missing parameters!
+                    RecipeFeedResponse(
+                        success = true,
+                        isLocked = isPremium,
+                        viewcount = freeViews,
+                        recipes = allRecipes
+                    )
+                }
+
+                // 5. Send the list back to Android
+                call.respond(HttpStatusCode.OK, responseData)
+            }
             get("/api/recipes/my") {
                 // 1. Who is asking? Extract their ID from the JWT token
                 val principal = call.principal<JWTPrincipal>()
@@ -601,9 +727,13 @@ fun Application.configureRouting() {
                     ?: return@get call.respond(HttpStatusCode.Unauthorized, SimpleMessageResponse(false, "Invalid token"))
 
                 // 2. Search the DB for ONLY recipes matching this user's ID
-                val myRecipes = transaction {
+                val responseData = transaction {
+                    val userRow = Users.selectAll().where { Users.id eq loggedInUserId }.singleOrNull()
+                    val isPremium = userRow?.get(Users.isPremium) ?: false
+                    val freeViews = userRow?.get(Users.freeViews) ?: 0
                     // Make sure to include the innerJoin so you can get their name!
-                    (Recipes innerJoin Users)
+//                    (Recipes innerJoin Users)
+                    val myRecipesList = (Recipes innerJoin Users)
                         .selectAll()
                         .where { Recipes.userId eq loggedInUserId } // <-- THE FILTER!
                         .map { row ->
@@ -617,13 +747,22 @@ fun Application.configureRouting() {
                                 instructions = row[Recipes.instructions],
                                 ingredientsName = row[Recipes.ingredientsName],
                                 ingredientsQuantity = row[Recipes.ingredientsQuantity],
-                                userName = row[Users.name]
+                                userName = row[Users.name],
+
+                                isLocked = row[Users.isPremium]
                             )
                         }
+                    RecipeFeedResponse(
+                        success = true,
+                        isLocked = isPremium, // (Or however you defined this logic)
+                        viewcount = freeViews,
+                        recipes = myRecipesList
+                    )
                 }
 
                 // 3. Send their specific list back to Android
-                call.respond(HttpStatusCode.OK, RecipeFeedResponse(success = true, recipes = myRecipes))
+//                call.respond(HttpStatusCode.OK, RecipeFeedResponse(success = true ,recipes = myRecipes))
+                call.respond(HttpStatusCode.OK, responseData)
             }
 
             post("/api/recipes/add") {
@@ -692,12 +831,12 @@ fun Application.configureRouting() {
 
             // Delete a specific recipe by ID
             delete("/api/recipes/{id}") {
-                // Verify
+                // Verify who is making the request
                 val principal = call.principal<JWTPrincipal>()
                 val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
                     ?: return@delete call.respond(HttpStatusCode.Unauthorized)
 
-                // Get the recipe ID from the URL
+                // Get the recipe ID from the URL (e.g., /api/recipes/5)
                 val recipeId = call.parameters["id"]?.toIntOrNull()
                 if (recipeId == null) {
                     call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Invalid recipe ID"))
@@ -710,7 +849,7 @@ fun Application.configureRouting() {
                         (Recipes.id eq recipeId) and (Recipes.userId eq loggedInUserId)
                     }
                 }
-                
+
                 // Respond to Android
                 if (deletedRowsCount > 0) {
                     call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "Recipe deleted successfully"))
@@ -719,7 +858,7 @@ fun Application.configureRouting() {
                 }
             }
 
-             // --- EDIT A RECIPE ---
+            // --- EDIT A RECIPE ---
             put("/api/recipes/{id}") {
                 // 1. Who is asking? Extract ID from the JWT token
                 val principal = call.principal<JWTPrincipal>()
@@ -748,7 +887,7 @@ fun Application.configureRouting() {
                 // 4. Grab the incoming data
                 val multipartData = call.receiveMultipart()
                 var uploadedImageUrl: String? = null
-
+                
                 var rName: String? = null; var rCountry: String? = null
                 var rCategory: String? = null; var rTags: String? = null
                 var rInstructions: String? = null; var rIngNames: String? = null
@@ -805,54 +944,52 @@ fun Application.configureRouting() {
                 call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "Recipe updated successfully!"))
             }
 
+//            get("/api/recipes/{id}") {
+//                // 1. Grab the ID from the URL (e.g., /api/recipes/4)
+//                val recipeId = call.parameters["id"]?.toIntOrNull()
+//
+//                if (recipeId == null) {
+//                    call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(success = false, message = "Invalid Recipe ID format"))
+//                    return@get
+//                }
+//
+//                // 2. Query the database for that exact row
+//                val singleRecipe = transaction {
+////                    val row = Recipes.selectAll().where { Recipes.id eq recipeId }.singleOrNull()
+//                    val row = (Recipes innerJoin Users).selectAll().where { Recipes.id eq recipeId }.singleOrNull()
+//
+//                    // 3. If we found it, map it to your Data Class
+//                    if (row != null) {
+//                        RecipeResponse(
+//                            id = row[Recipes.id].value, // Note: Use .value if your ID is an EntityID!
+//                            name = row[Recipes.name],
+//                            imageUrl = row[Recipes.imageUrl],
+//                            category = row[Recipes.category],
+//                            country = row[Recipes.country],
+//                            tags = row[Recipes.tags],
+//                            instructions = row[Recipes.instructions],
+//                            ingredientsName = row[Recipes.ingredientsName],
+//                            ingredientsQuantity = row[Recipes.ingredientsQuantity],
+//                            userName = row[Users.username]
+//                        )
+//                    } else {
+//                        null
+//                    }
+//                }
+//
+//                // 4. Return the result
+//                if (singleRecipe != null) {
+//                    // Option A: Just return the recipe object directly
+//                    call.respond(HttpStatusCode.OK, singleRecipe)
+//
+//                    // Option B (If you want a wrapper):
+//                    // call.respond(HttpStatusCode.OK, mapOf("success" to true, "recipe" to singleRecipe))
+//                } else {
+//                    call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(success = false, message = "Recipe not found"))
+//                }
+//            }
 
-            //  get("/api/recipes/{id}") {
-            //     // 1. Grab the ID from the URL (e.g., /api/recipes/4)
-            //     val recipeId = call.parameters["id"]?.toIntOrNull()
-
-            //     if (recipeId == null) {
-            //         call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(success = false, message = "Invalid Recipe ID format"))
-            //         return@get
-            //     }
-
-            //     // 2. Query the database for that exact row
-            //     val singleRecipe = transaction {
-            //         // val row = Recipes.selectAll().where { Recipes.id eq recipeId }.singleOrNull()
-            //         val row = (Recipes innerJoin Users).selectAll().where { Recipes.id eq recipeId }.singleOrNull()
-
-
-            //         // 3. If we found it, map it to your Data Class
-            //         if (row != null) {
-            //             RecipeResponse(
-            //                 id = row[Recipes.id].value, // Note: Use .value if your ID is an EntityID!
-            //                 name = row[Recipes.name],
-            //                 imageUrl = row[Recipes.imageUrl],
-            //                 category = row[Recipes.category],
-            //                 country = row[Recipes.country],
-            //                 tags = row[Recipes.tags],
-            //                 instructions = row[Recipes.instructions],
-            //                 ingredientsName = row[Recipes.ingredientsName],
-            //                 ingredientsQuantity = row[Recipes.ingredientsQuantity],
-            //                 userName = row[Users.username]
-            //             )
-            //         } else {
-            //             null
-            //         }
-            //     }
-
-            //     // 4. Return the result
-            //     if (singleRecipe != null) {
-            //         // Option A: Just return the recipe object directly
-            //         call.respond(HttpStatusCode.OK, singleRecipe)
-
-            //         // Option B (If you want a wrapper):
-            //         // call.respond(HttpStatusCode.OK, mapOf("success" to true, "recipe" to singleRecipe))
-            //     } else {
-            //         call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(success = false, message = "Recipe not found"))
-            //     }
-            // }
-
-                get("/api/recipes/{id}") {
+            get("/api/recipes/{id}") {
                 // 1. Identify the user making the request
                 val principal = call.principal<JWTPrincipal>()
                 val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
@@ -930,7 +1067,7 @@ fun Application.configureRouting() {
                         ingredientsName = singleRecipe[Recipes.ingredientsName],
                         ingredientsQuantity = singleRecipe[Recipes.ingredientsQuantity],
                         userName = singleRecipe[Users.username], // Attached perfectly via innerJoin
-                        isLocked = false
+                        isLocked = singleRecipe[Users.isPremium]
                     )
 
                     call.respond(HttpStatusCode.OK, fullRecipeResponse)
@@ -990,7 +1127,8 @@ fun Application.configureRouting() {
                                 instructions = row[Recipes.instructions],
                                 ingredientsName = row[Recipes.ingredientsName],
                                 ingredientsQuantity = row[Recipes.ingredientsQuantity],
-                                userName = row[Users.username] // Pulling the author's real username from the Users table!
+                                userName = row[Users.username], // Pulling the author's real username from the Users table!
+                                isLocked = row[Users.isPremium]
                             )
                         }
                 }
@@ -1034,36 +1172,11 @@ fun Application.configureRouting() {
         } // End of authenticate block
 
 
-              // --- CHECK IF USERNAME IS AVAILABLE ---
-            get("/api/check-username") {
-                val queryUsername = call.request.queryParameters["username"]?.trim()
-
-                if (queryUsername.isNullOrBlank()) {
-                    call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Username required"))
-                    return@get
-                }
-
-                // Check if ANY row in the database already has this exact username
-                val isTaken = transaction {
-                    Users.selectAll()
-                        .where { Users.username.lowerCase() eq queryUsername.lowercase() }
-                        .singleOrNull() != null
-                }
-
-                // If it is NOT taken, it is available!
-                call.respond(HttpStatusCode.OK, mapOf("available" to !isTaken))
-            }
-            
-
         // ---  GET THE RECIPE FEED WITHOUT AUTH ---
         get("/api/recipeswoa") {
             // Fetch all recipes from the database (We'll limit it to 50 so it doesn't crash the app if you have millions later!)
             val allRecipes = transaction {
-                (Recipes innerJoin Users)
-                    .slice(Recipes.columns + Users.username)
-                    .selectAll()
-                    .limit(50)
-                    .map { row ->
+                (Recipes innerJoin Users).selectAll().limit(50).map { row ->
                     RecipeResponse(
                         id = row[Recipes.id].value,
                         name = row[Recipes.name],
@@ -1074,15 +1187,808 @@ fun Application.configureRouting() {
                         instructions = row[Recipes.instructions] ,
                         ingredientsName = row[Recipes.ingredientsName] ,
                         ingredientsQuantity = row[Recipes.ingredientsQuantity],
-                        userName = row[Users.username]                    )
+                        userName = row[Users.username],
+                        isLocked = row[Users.isPremium])
                 }
             }
 
             // Send the list back to Android
 //                call.respond(HttpStatusCode.OK, mapOf("success" to true, "recipes" to allRecipes))
             // GOOD: Using our strict, predictable Data Class
-            call.respond(HttpStatusCode.OK, RecipeFeedResponse(success = true, recipes = allRecipes))
+            call.respond(HttpStatusCode.OK, RecipeFeedResponse(success = true,isLocked = false, viewcount = 0, recipes = allRecipes))
         }
+
+            
+//             post("/api/profile/update") {
+//                 // 1. Verify the JWT token and get the User ID
+//                 val principal = call.principal<JWTPrincipal>()
+//                 val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+//                     ?: return@post call.respond(HttpStatusCode.Unauthorized)
+
+//                 val multipartData = call.receiveMultipart()
+//                 var uploadedImageUrl: String? = null
+
+//                 // Variables to hold the incoming data from Android
+//                 var rName: String? = null
+//                 var rCountry: String? = null
+//                 var rUsername: String? = null
+//                 var rDob: String? = null
+//                 var rBio: String? = null
+//                 var rFavFoods: String? = null
+//                 var rAllergies: String? = null
+//                 var rIsComplete = false
+
+//                 multipartData.forEachPart { part ->
+//                     when (part) {
+//                         is PartData.FormItem -> {
+//                             when (part.name) {
+//                                 "name" -> rName = part.value
+//                                 "country" -> rCountry = part.value
+//                                 "username" -> rUsername = part.value
+//                                 "dob" -> rDob = part.value
+//                                 "bio" -> rBio = part.value
+//                                 "fav_foods" -> rFavFoods = part.value
+//                                 "allergies" -> rAllergies = part.value
+//                                 "is_profile_complete" -> rIsComplete = part.value.toBooleanStrictOrNull() ?: false
+//                             }
+//                         }
+//                         is PartData.FileItem -> {
+//                             // If they uploaded an image, send it to Cloudinary!
+//                             val fileBytes = part.streamProvider().readBytes()
+//                             if (fileBytes.isNotEmpty()) {
+//                                 val tempFile = File.createTempFile("profile_", part.originalFileName)
+//                                 tempFile.writeBytes(fileBytes)
+//                                 val uploadResult = cloudinary.uploader().upload(tempFile, ObjectUtils.emptyMap())
+//                                 uploadedImageUrl = uploadResult["secure_url"] as String
+//                                 tempFile.delete()
+//                             }
+//                         }
+//                         else -> {}
+//                     }
+//                     part.dispose()
+//                 }
+
+//                 // 2. UPDATE THE DATABASE!
+//                 transaction {
+//                     Users.update({ Users.id eq loggedInUserId }) {
+//                         rName?.let { name -> it[Users.name] = name }
+//                         rUsername?.let { username -> it[Users.username] = username }
+//                         rCountry?.let { country -> it[Users.country] = country }
+//                         rDob?.let { dob -> it[Users.dob] = dob }
+//                         rBio?.let { bio -> it[Users.bio] = bio }
+//                         rFavFoods?.let { foods -> it[Users.favFoods] = foods }
+//                         rAllergies?.let { allergies -> it[Users.allergies] = allergies }
+
+//                         if (rIsComplete) {
+//                             it[Users.isProfileComplete] = true
+//                         }
+
+//                         // Only update the image column if they actually uploaded a new picture
+//                         uploadedImageUrl?.let { url -> it[Users.profileImageUrl] = url }
+//                     }
+//                 }
+
+//                 call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "Profile updated successfully!"))
+//             }
+
+//             // --- 1. GET THE LOGGED-IN USER'S PROFILE ---
+//             get("/api/profile/me") {
+//                 // 1. Who is asking? Extract ID from the JWT token
+//                 val principal = call.principal<JWTPrincipal>()
+//                 val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+//                     ?: return@get call.respond(HttpStatusCode.Unauthorized, SimpleMessageResponse(false, "Invalid token"))
+
+//                 // 2. Fetch their exact row from the database
+//                 val userRow = transaction {
+//                     Users.selectAll().where { Users.id eq loggedInUserId }.singleOrNull()
+//                 }
+
+//                 if (userRow == null) {
+//                     call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(false, "User not found"))
+//                     return@get
+//                 }
+
+//                 // 3. Package it into your UserProfile data class
+//                 val profileData = UserProfile(
+//                     name = userRow[Users.name],
+//                     username = userRow[Users.username],
+//                     country = userRow[Users.country],
+//                     dob = userRow[Users.dob],
+//                     bio = userRow[Users.bio],
+//                     profileImageUrl = userRow[Users.profileImageUrl],
+//                     isProfileComplete = userRow[Users.isProfileComplete],
+//                     allergies = userRow[Users.allergies],
+//                     favFoods = userRow[Users.favFoods],
+//                     email = userRow[Users.email]
+
+//                 )
+
+//                 // 4. Send it back!
+//                 call.respond(HttpStatusCode.OK, profileData)
+//             }
+
+//             get("/api/profile") {
+//                 // 1. Who is asking? Extract ID from the JWT token
+//                 val principal = call.principal<JWTPrincipal>()
+//                 val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+//                     ?: return@get call.respond(HttpStatusCode.Unauthorized, SimpleMessageResponse(false, "Invalid token"))
+
+//                 val callerExists = transaction {
+//                     Users.selectAll().where { Users.id eq loggedInUserId }.singleOrNull() != null
+//                 }
+
+//                 if (!callerExists) {
+//                     call.respond(HttpStatusCode.Unauthorized, SimpleMessageResponse(false, "User account no longer exists"))
+//                     return@get
+//                 }
+
+//                 val searchQuery = call.request.queryParameters["search"]
+//                 val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 50
+//                 val offset = call.request.queryParameters["offset"]?.toLongOrNull() ?: 0L
+
+//                 // 2. Query the database
+//                 val profiles = transaction {
+// //                    Get All the Users
+// //                    var query = Users.selectAll()
+
+// //                    Get only those user whose profile is completed = true
+//                     var query = Users.selectAll().where { Users.isProfileComplete eq true }
+
+//                     // 3. If user typed a search term, filter the database
+//                     if (!searchQuery.isNullOrBlank()) {
+//                         val searchPattern = "%${searchQuery.lowercase()}%"
+
+//                         // query = query.andWhere {
+//                         //     (Users.name.lowerCase() like searchPattern) or
+//                         //             (Users.username.lowerCase() like searchPattern)
+//                         // }
+//                         query = query.adjustWhere {
+//                             val searchRule = (Users.name.lowerCase() like searchPattern) or
+//                                     (Users.username.lowerCase() like searchPattern)
+
+//                             this?.and(searchRule) ?: searchRule
+//                         }
+//                     }
+
+//                     val fetchedUserRows = query.limit(limit, offset).toList()
+
+//                     val userIds = fetchedUserRows.map { it[Users.id] }
+
+//                     // 3. Batch-fetch ALL recipes belonging to those specific users in ONE query!
+//                     val userRecipesMap = if (userIds.isNotEmpty()) {
+//                         Recipes.selectAll()
+//                             .where { Recipes.userId inList userIds }
+//                             // Group them by the User ID so we can easily attach them below
+//                             .groupByTo(mutableMapOf(), { it[Recipes.userId] }) { recipeRow ->
+//                                 RecipeSummary(
+//                                     id = recipeRow[Recipes.id].toString(),
+//                                     imageUrl = recipeRow[Recipes.imageUrl],
+//                                     recipeName = recipeRow[Recipes.name],
+//                                     category = recipeRow[Recipes.category],
+//                                     countryName = recipeRow[Recipes.country]
+//                                 )
+//                             }
+//                     } else {
+//                         emptyMap()
+//                     }
+
+//                     // 4. Map the UserRows to your Data Class, and attach their recipes!
+//                     fetchedUserRows.map { userRow ->
+//                         val currentUserId = userRow[Users.id]
+
+//                         UserProfile(
+//                             name = userRow[Users.name],
+//                             username = userRow[Users.username],
+//                             country = userRow[Users.country],
+//                             dob = userRow[Users.dob],
+//                             bio = userRow[Users.bio],
+//                             profileImageUrl = userRow[Users.profileImageUrl],
+//                             isProfileComplete = userRow[Users.isProfileComplete],
+//                             allergies = userRow[Users.allergies],
+//                             favFoods = userRow[Users.favFoods],
+//                             email = "", // Kept blank for security!
+
+//                             // Attach the recipes we found! If they have none, use an empty list.
+//                             recipes = userRecipesMap[currentUserId] ?: emptyList()
+//                         )
+//                     }
+                    
+//                     // // 4. Apply the limit, offset, and map the rows to my data class
+//                     // query.limit(limit, offset).map { userRow ->
+//                     //     UserProfile(
+//                     //         name = userRow[Users.name],
+//                     //         username = userRow[Users.username],
+//                     //         country = userRow[Users.country],
+//                     //         dob = userRow[Users.dob],
+//                     //         bio = userRow[Users.bio],
+//                     //         profileImageUrl = userRow[Users.profileImageUrl],
+//                     //         isProfileComplete = userRow[Users.isProfileComplete],
+//                     //         allergies = userRow[Users.allergies],
+//                     //         favFoods = userRow[Users.favFoods],
+//                     //         email = userRow[Users.email] 
+//                     //     )
+//                     // }
+//                 }
+
+//                 // 5. Send the list back to the app!
+// //                call.respond(HttpStatusCode.OK, mapOf("success" to true, "results" to profiles))
+//                 call.respond(HttpStatusCode.OK, ProfileListResponse(success = true, results = profiles))
+//             }
+
+
+//             // --- 2. GET THE RECIPE FEED ---
+//             get("/api/recipes") {
+//                 // Fetch all recipes from the database (We'll limit it to 50 so it doesn't crash the app if you have millions later!)
+//                 val allRecipes = transaction {
+//                     Recipes.selectAll().limit(50).map { row ->
+//                         RecipeResponse(
+//                             id = row[Recipes.id].value,
+//                             name = row[Recipes.name],
+//                             imageUrl = row[Recipes.imageUrl],
+//                             category = row[Recipes.category],
+//                             country = row[Recipes.country],
+//                             tags = row[Recipes.tags],
+//                             instructions = row[Recipes.instructions] ,
+//                         ingredientsName = row[Recipes.ingredientsName] ,
+//                         ingredientsQuantity = row[Recipes.ingredientsQuantity],
+//                             userName = row[Users.name]
+//                         )
+//                     }
+//                 }
+
+//                 // Send the list back to Android
+// //                call.respond(HttpStatusCode.OK, mapOf("success" to true, "recipes" to allRecipes))
+//                 // GOOD: Using our strict, predictable Data Class
+//                 call.respond(HttpStatusCode.OK, RecipeFeedResponse(success = true, recipes = allRecipes))
+//             }
+
+//               get("/api/profile/{username}") {
+//                 // 1. Grab the username from the URL (e.g., /api/profile/ChefAnkit)
+//                 val targetUsername = call.parameters["username"]
+
+//                 if (targetUsername.isNullOrBlank()) {
+//                     call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Username is required"))
+//                     return@get
+//                 }
+
+//                 // 2. Query the database for that EXACT username
+//                 val specificUserProfile = transaction {
+//                     val userRow = Users.selectAll()
+//                         .where { Users.username.lowerCase() eq targetUsername.lowercase() }
+//                         .singleOrNull()
+
+//                     if (userRow != null) {
+//                         val currentUserId = userRow[Users.id]
+
+//                         // Fetch all recipes uploaded by this specific user
+//                         val userRecipes = Recipes.selectAll()
+//                             .where { Recipes.userId eq currentUserId }
+//                             .map { recipeRow ->
+//                                 RecipeSummary(
+//                                     id = recipeRow[Recipes.id].toString(),
+//                                     imageUrl = recipeRow[Recipes.imageUrl],
+//                                     recipeName = recipeRow[Recipes.name], // Match RecipeSummary data class parameters!
+//                                     category = recipeRow[Recipes.category],
+//                                     countryName = recipeRow[Recipes.country]
+//                                 )
+//                             }
+
+//                         // Map the user data and attach their recipes
+//                         UserProfile(
+//                             name = userRow[Users.name],
+//                             username = userRow[Users.username],
+//                             country = userRow[Users.country],
+//                             dob = userRow[Users.dob],
+//                             bio = userRow[Users.bio],
+//                             profileImageUrl = userRow[Users.profileImageUrl],
+//                             isProfileComplete = userRow[Users.isProfileComplete],
+//                             allergies = userRow[Users.allergies],
+//                             favFoods = userRow[Users.favFoods],
+//                             email = "", // Keep blank so people can't steal emails!
+//                             recipes = userRecipes
+//                         )
+//                     } else {
+//                         null
+//                     }
+//                 }
+
+//                 // 3. Return the result to Android
+//                 if (specificUserProfile != null) {
+//                     call.respond(HttpStatusCode.OK, specificUserProfile)
+//                 } else {
+//                     call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(success = false, message = "Chef not found"))
+//                 }
+//             }
+
+//             get("/api/recipes/my") {
+//                 // 1. Who is asking? Extract their ID from the JWT token
+//                 val principal = call.principal<JWTPrincipal>()
+//                 val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+//                     ?: return@get call.respond(HttpStatusCode.Unauthorized, SimpleMessageResponse(false, "Invalid token"))
+
+//                 // 2. Search the DB for ONLY recipes matching this user's ID
+//                 val myRecipes = transaction {
+//                     // Make sure to include the innerJoin so you can get their name!
+//                     (Recipes innerJoin Users)
+//                         .selectAll()
+//                         .where { Recipes.userId eq loggedInUserId } // <-- THE FILTER!
+//                         .map { row ->
+//                             RecipeResponse(
+//                                 id = row[Recipes.id].value,
+//                                 name = row[Recipes.name],
+//                                 imageUrl = row[Recipes.imageUrl],
+//                                 category = row[Recipes.category],
+//                                 country = row[Recipes.country],
+//                                 tags = row[Recipes.tags],
+//                                 instructions = row[Recipes.instructions],
+//                                 ingredientsName = row[Recipes.ingredientsName],
+//                                 ingredientsQuantity = row[Recipes.ingredientsQuantity],
+//                                 userName = row[Users.name]
+//                             )
+//                         }
+//                 }
+
+//                 // 3. Send their specific list back to Android
+//                 call.respond(HttpStatusCode.OK, RecipeFeedResponse(success = true, recipes = myRecipes))
+//             }
+
+//             post("/api/recipes/add") {
+//                 val principal = call.principal<JWTPrincipal>()
+//                 val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+//                     ?: return@post call.respond(HttpStatusCode.Unauthorized)
+
+//                 val multipartData = call.receiveMultipart()
+//                 var uploadedImageUrl: String? = null
+
+//                 // Variables to hold the text data from the Android form
+//                 var rName = ""; var rCountry = ""; var rCategory = ""; var rTags = ""
+//                 var rInstructions = ""; var rIngNames = ""; var rIngQuants = ""; var rUserName = ""
+
+//                 multipartData.forEachPart { part ->
+//                     when (part) {
+//                         is PartData.FormItem -> {
+//                             when (part.name) {
+//                                 "recipe_name" -> rName = part.value
+//                                 "country" -> rCountry = part.value
+//                                 "category" -> rCategory = part.value
+//                                 "tags" -> rTags = part.value
+//                                 "instructions" -> rInstructions = part.value
+//                                 "ingredients_name" -> rIngNames = part.value
+//                                 "ingredients_quantity" -> rIngQuants = part.value
+//                                 "uploader_username" -> rUserName = part.value
+//                             }
+//                         }
+//                         is PartData.FileItem -> {
+//                             val fileBytes = part.streamProvider().readBytes()
+//                             val tempFile = File.createTempFile("recipe_", part.originalFileName)
+//                             tempFile.writeBytes(fileBytes)
+//                             val uploadResult = cloudinary.uploader().upload(tempFile, ObjectUtils.emptyMap())
+//                             uploadedImageUrl = uploadResult["secure_url"] as String
+//                             tempFile.delete()
+//                         }
+//                         else -> {}
+//                     }
+//                     part.dispose()
+//                 }
+
+//                 println("🚨 DEBUG: recipe_name is -> '$rName'")
+//                 println("🚨 DEBUG: uploadedImageUrl is -> '$uploadedImageUrl'")
+
+//                 if (uploadedImageUrl != null && rName.isNotEmpty()) {
+//                     // Save Recipe to PostgreSQL
+//                     transaction {
+//                         Recipes.insert {
+//                             it[name] = rName
+//                             it[country] = rCountry
+//                             it[category] = rCategory
+//                             it[tags] = rTags
+//                             it[instructions] = rInstructions
+//                             it[ingredientsName] = rIngNames
+//                             it[ingredientsQuantity] = rIngQuants
+//                             it[imageUrl] = uploadedImageUrl
+//                             it[username] = rUserName
+//                             it[userId] = loggedInUserId
+//                         }
+//                     }
+//                     call.respond(HttpStatusCode.OK, SimpleMessageResponse(success = true, message = "Recipe Added!"))
+//                 } else {
+//                     call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(success = false, message = "Missing image or name"))
+//                 }
+//             }
+
+//             // Delete a specific recipe by ID
+//             delete("/api/recipes/{id}") {
+//                 // Verify
+//                 val principal = call.principal<JWTPrincipal>()
+//                 val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+//                     ?: return@delete call.respond(HttpStatusCode.Unauthorized)
+
+//                 // Get the recipe ID from the URL
+//                 val recipeId = call.parameters["id"]?.toIntOrNull()
+//                 if (recipeId == null) {
+//                     call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Invalid recipe ID"))
+//                     return@delete
+//                 }
+
+//                 // Delete from the database
+//                 val deletedRowsCount = transaction {
+//                     Recipes.deleteWhere {
+//                         (Recipes.id eq recipeId) and (Recipes.userId eq loggedInUserId)
+//                     }
+//                 }
+                
+//                 // Respond to Android
+//                 if (deletedRowsCount > 0) {
+//                     call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "Recipe deleted successfully"))
+//                 } else {
+//                     call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(false, "Recipe not found or you don't have permission to delete it"))
+//                 }
+//             }
+
+//              // --- EDIT A RECIPE ---
+//             put("/api/recipes/{id}") {
+//                 // 1. Who is asking? Extract ID from the JWT token
+//                 val principal = call.principal<JWTPrincipal>()
+//                 val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+//                     ?: return@put call.respond(HttpStatusCode.Unauthorized)
+
+//                 // 2. Get the Recipe ID from the URL
+//                 val recipeId = call.parameters["id"]?.toIntOrNull()
+//                 if (recipeId == null) {
+//                     call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Invalid recipe ID"))
+//                     return@put
+//                 }
+
+//                 // 3. SECURITY CHECK: Does this user actually own this recipe?
+//                 val isOwner = transaction {
+//                     Recipes.selectAll()
+//                         .where { (Recipes.id eq recipeId) and (Recipes.userId eq loggedInUserId) }
+//                         .singleOrNull() != null
+//                 }
+
+//                 if (!isOwner) {
+//                     call.respond(HttpStatusCode.Forbidden, SimpleMessageResponse(false, "You do not have permission to edit this recipe."))
+//                     return@put
+//                 }
+
+//                 // 4. Grab the incoming data
+//                 val multipartData = call.receiveMultipart()
+//                 var uploadedImageUrl: String? = null
+
+//                 var rName: String? = null; var rCountry: String? = null
+//                 var rCategory: String? = null; var rTags: String? = null
+//                 var rInstructions: String? = null; var rIngNames: String? = null
+//                 var rIngQuants: String? = null
+
+//                 multipartData.forEachPart { part ->
+//                     when (part) {
+//                         is PartData.FormItem -> {
+//                             when (part.name) {
+//                                 "recipe_name" -> rName = part.value
+//                                 "country" -> rCountry = part.value
+//                                 "category" -> rCategory = part.value
+//                                 "tags" -> rTags = part.value
+//                                 "instructions" -> rInstructions = part.value
+//                                 "ingredients_name" -> rIngNames = part.value
+//                                 "ingredients_quantity" -> rIngQuants = part.value
+//                             }
+//                         }
+//                         is PartData.FileItem -> {
+//                             // Using the new non-blocking provider() method!
+// //                            val fileBytes = part.provider().asStream().readBytes()
+//                             // The new Ktor 3 way!
+//                             val fileBytes = part.provider().toByteArray()
+//                             if (fileBytes.isNotEmpty()) {
+//                                 val tempFile = File.createTempFile("recipe_edit_", part.originalFileName)
+//                                 tempFile.writeBytes(fileBytes)
+//                                 val uploadResult = cloudinary.uploader().upload(tempFile, ObjectUtils.emptyMap())
+//                                 uploadedImageUrl = uploadResult["secure_url"] as String
+//                                 tempFile.delete()
+//                             }
+//                         }
+//                         else -> {}
+//                     }
+//                     part.dispose()
+//                 }
+
+//                 // 5. Update the Database!
+//                 transaction {
+//                     Recipes.update({ Recipes.id eq recipeId }) {
+//                         // We use .let to ONLY update the fields that were actually sent!
+//                         rName?.let { name -> if(name.isNotBlank()) it[Recipes.name] = name }
+//                         rCountry?.let { country -> if(country.isNotBlank()) it[Recipes.country] = country }
+//                         rCategory?.let { category -> if(category.isNotBlank()) it[Recipes.category] = category }
+//                         rTags?.let { tags -> if(tags.isNotBlank()) it[Recipes.tags] = tags }
+//                         rInstructions?.let { inst -> if(inst.isNotBlank()) it[Recipes.instructions] = inst }
+//                         rIngNames?.let { ingName -> if(ingName.isNotBlank()) it[Recipes.ingredientsName] = ingName }
+//                         rIngQuants?.let { ingQuant -> if(ingQuant.isNotBlank()) it[Recipes.ingredientsQuantity] = ingQuant }
+
+//                         // Only update the image if a new one was successfully uploaded
+//                         uploadedImageUrl?.let { url -> it[Recipes.imageUrl] = url }
+//                     }
+//                 }
+
+//                 call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "Recipe updated successfully!"))
+//             }
+
+
+//             //  get("/api/recipes/{id}") {
+//             //     // 1. Grab the ID from the URL (e.g., /api/recipes/4)
+//             //     val recipeId = call.parameters["id"]?.toIntOrNull()
+
+//             //     if (recipeId == null) {
+//             //         call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(success = false, message = "Invalid Recipe ID format"))
+//             //         return@get
+//             //     }
+
+//             //     // 2. Query the database for that exact row
+//             //     val singleRecipe = transaction {
+//             //         // val row = Recipes.selectAll().where { Recipes.id eq recipeId }.singleOrNull()
+//             //         val row = (Recipes innerJoin Users).selectAll().where { Recipes.id eq recipeId }.singleOrNull()
+
+
+//             //         // 3. If we found it, map it to your Data Class
+//             //         if (row != null) {
+//             //             RecipeResponse(
+//             //                 id = row[Recipes.id].value, // Note: Use .value if your ID is an EntityID!
+//             //                 name = row[Recipes.name],
+//             //                 imageUrl = row[Recipes.imageUrl],
+//             //                 category = row[Recipes.category],
+//             //                 country = row[Recipes.country],
+//             //                 tags = row[Recipes.tags],
+//             //                 instructions = row[Recipes.instructions],
+//             //                 ingredientsName = row[Recipes.ingredientsName],
+//             //                 ingredientsQuantity = row[Recipes.ingredientsQuantity],
+//             //                 userName = row[Users.username]
+//             //             )
+//             //         } else {
+//             //             null
+//             //         }
+//             //     }
+
+//             //     // 4. Return the result
+//             //     if (singleRecipe != null) {
+//             //         // Option A: Just return the recipe object directly
+//             //         call.respond(HttpStatusCode.OK, singleRecipe)
+
+//             //         // Option B (If you want a wrapper):
+//             //         // call.respond(HttpStatusCode.OK, mapOf("success" to true, "recipe" to singleRecipe))
+//             //     } else {
+//             //         call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(success = false, message = "Recipe not found"))
+//             //     }
+//             // }
+
+//                 get("/api/recipes/{id}") {
+//                 // 1. Identify the user making the request
+//                 val principal = call.principal<JWTPrincipal>()
+//                 val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+//                     ?: return@get call.respond(HttpStatusCode.Unauthorized)
+
+//                 // 2. Grab the Recipe ID from the URL
+//                 val recipeId = call.parameters["id"]?.toIntOrNull()
+//                 if (recipeId == null) {
+//                     call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Invalid Recipe ID"))
+//                     return@get
+//                 }
+
+//                 // 3. Fetch User data to check Paywall Status
+//                 val userRow = transaction {
+//                     Users.selectAll().where { Users.id eq loggedInUserId }.singleOrNull()
+//                 }
+
+//                 if (userRow == null) {
+//                     call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(false, "User not found"))
+//                     return@get
+//                 }
+
+//                 val isPremium = userRow[Users.isPremium]
+//                 val currentFreeViews = userRow[Users.freeViews]
+
+//                 // 4. Fetch the Recipe (using innerJoin so we get the author's Username!)
+//                 val singleRecipe = transaction {
+//                     (Recipes innerJoin Users).selectAll().where { Recipes.id eq recipeId }.singleOrNull()
+//                 }
+
+//                 if (singleRecipe != null) {
+
+//                     // PAYWALL LOGIC: Are they a free user who has already viewed 2 recipes?
+//                     val isPaywalled = !isPremium && currentFreeViews >= 2
+
+//                     if (isPaywalled) {
+//                         // 🚨 THEY HIT THE PAYWALL: Send the "Teaser" version!
+//                         val teaserResponse = RecipeResponse(
+//                             id = singleRecipe[Recipes.id].value,
+//                             name = singleRecipe[Recipes.name],
+//                             imageUrl = singleRecipe[Recipes.imageUrl],
+//                             category = singleRecipe[Recipes.category],
+//                             country = singleRecipe[Recipes.country],
+//                             tags = singleRecipe[Recipes.tags],
+//                             // CENSOR THE SECRET DATA:
+//                             instructions = "Unlock Premium to view these instructions!",
+//                             ingredientsName = "Locked",
+//                             ingredientsQuantity = "Locked",
+//                             userName = singleRecipe[Users.username], // Attached perfectly via innerJoin
+//                             isLocked = true // Tell Android to pop up the Bottom Sheet!
+//                         )
+
+//                         call.respond(HttpStatusCode.OK, teaserResponse)
+//                         return@get
+//                     }
+
+//                     // 5. If they are a free user (with views left), increment their counter!
+//                     if (!isPremium) {
+//                         transaction {
+//                             Users.update({ Users.id eq loggedInUserId }) {
+//                                 it[freeViews] = currentFreeViews + 1
+//                             }
+//                         }
+//                     }
+
+//                     // 6. Send the FULL unlocked recipe
+//                     val fullRecipeResponse = RecipeResponse(
+//                         id = singleRecipe[Recipes.id].value,
+//                         name = singleRecipe[Recipes.name],
+//                         imageUrl = singleRecipe[Recipes.imageUrl],
+//                         category = singleRecipe[Recipes.category],
+//                         country = singleRecipe[Recipes.country],
+//                         tags = singleRecipe[Recipes.tags],
+//                         instructions = singleRecipe[Recipes.instructions],
+//                         ingredientsName = singleRecipe[Recipes.ingredientsName],
+//                         ingredientsQuantity = singleRecipe[Recipes.ingredientsQuantity],
+//                         userName = singleRecipe[Users.username], // Attached perfectly via innerJoin
+//                         isLocked = false
+//                     )
+
+//                     call.respond(HttpStatusCode.OK, fullRecipeResponse)
+//                 } else {
+//                     call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(false, "Recipe not found"))
+//                 }
+//             }
+
+//             get("/api/recipes/search") {
+//                 val query = call.request.queryParameters["q"]?.lowercase()
+
+//                 if (query.isNullOrBlank()) {
+//                     call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(success = false, message = "Empty search query"))
+//                     return@get
+//                 }
+
+//                 // Search DB where name or tags contain the query
+// //                val results = transaction {
+// //                    // FIXED: Using selectAll().where
+// //                    Recipes.selectAll().where {
+// //                        (Recipes.name.lowerCase() like "%$query%") or
+// //                                (Recipes.tags.lowerCase() like "%$query%") or
+// //                                (Recipes.country.lowerCase() like "%$query%") or
+// //                                (Recipes.category.lowerCase() like "%$query%")
+// //                    }.map { row ->
+// //                        RecipeResponse(
+// //                            id = row[Recipes.id].value,
+// //                            name = row[Recipes.name],
+// //                            imageUrl = row[Recipes.imageUrl],
+// //                            category = row[Recipes.category],
+// //                            country = row[Recipes.country],
+// //                            tags = row[Recipes.tags],
+// //                            instructions = row[Recipes.instructions] ,
+// //                            ingredientsName = row[Recipes.ingredientsName] ,
+// //                            ingredientsQuantity = row[Recipes.ingredientsQuantity],
+// //                            userName = row[Users.username]
+// //                        )
+// //                    }
+// //                }
+//                 val results = transaction {
+//                     (Recipes innerJoin Users)
+//                         .selectAll()
+//                         .where {
+//                             (Recipes.name.lowerCase() like "%$query%") or
+//                                     (Recipes.tags.lowerCase() like "%$query%") or
+//                                     (Users.username.lowerCase()like "%$query%")or
+//                                     (Recipes.country.lowerCase() like "%$query%") or
+//                                     (Recipes.category.lowerCase() like "%$query%")
+//                         }.map { row ->
+//                             RecipeResponse(
+//                                 id = row[Recipes.id].value,
+//                                 name = row[Recipes.name],
+//                                 imageUrl = row[Recipes.imageUrl],
+//                                 category = row[Recipes.category],
+//                                 country = row[Recipes.country],
+//                                 tags = row[Recipes.tags],
+//                                 instructions = row[Recipes.instructions],
+//                                 ingredientsName = row[Recipes.ingredientsName],
+//                                 ingredientsQuantity = row[Recipes.ingredientsQuantity],
+//                                 userName = row[Users.username] // Pulling the author's real username from the Users table!
+//                             )
+//                         }
+//                 }
+
+//                 call.respond(HttpStatusCode.OK, RecipeSearchResponse(success = true, results = results))
+//             }
+
+//             post("/api/help") {
+//                 // 1. Verify the user's JWT token
+//                 val principal = call.principal<JWTPrincipal>()
+//                 val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+//                     ?: return@post call.respond(HttpStatusCode.Unauthorized)
+
+//                 // 2. Grab the JSON data sent from Android
+//                 val request = try {
+//                     call.receive<HelpRequest>()
+//                 } catch (_: Exception) {
+//                     call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Invalid data format"))
+//                     return@post
+//                 }
+
+//                 // 3. Basic Validation
+//                 if (request.title.isBlank() || request.description.isBlank()) {
+//                     call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Title and description are required"))
+//                     return@post
+//                 }
+
+//                 // 4. Save the ticket to Neon PostgreSQL!
+//                 transaction {
+//                     HelpTickets.insert {
+//                         it[title] = request.title
+//                         it[description] = request.description
+//                         it[userId] = loggedInUserId
+//                     }
+//                 }
+
+//                 // 5. Send success response back to Android
+//                 call.respond(HttpStatusCode.OK, SimpleMessageResponse(true, "Help ticket submitted successfully!"))
+//             }
+
+//         } // End of authenticate block
+
+
+//               // --- CHECK IF USERNAME IS AVAILABLE ---
+//             get("/api/check-username") {
+//                 val queryUsername = call.request.queryParameters["username"]?.trim()
+
+//                 if (queryUsername.isNullOrBlank()) {
+//                     call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Username required"))
+//                     return@get
+//                 }
+
+//                 // Check if ANY row in the database already has this exact username
+//                 val isTaken = transaction {
+//                     Users.selectAll()
+//                         .where { Users.username.lowerCase() eq queryUsername.lowercase() }
+//                         .singleOrNull() != null
+//                 }
+
+//                 // If it is NOT taken, it is available!
+//                 call.respond(HttpStatusCode.OK, mapOf("available" to !isTaken))
+//             }
+            
+
+//         // ---  GET THE RECIPE FEED WITHOUT AUTH ---
+//         get("/api/recipeswoa") {
+//             // Fetch all recipes from the database (We'll limit it to 50 so it doesn't crash the app if you have millions later!)
+//             val allRecipes = transaction {
+//                 (Recipes innerJoin Users)
+//                     .slice(Recipes.columns + Users.username)
+//                     .selectAll()
+//                     .limit(50)
+//                     .map { row ->
+//                     RecipeResponse(
+//                         id = row[Recipes.id].value,
+//                         name = row[Recipes.name],
+//                         imageUrl = row[Recipes.imageUrl],
+//                         category = row[Recipes.category],
+//                         country = row[Recipes.country],
+//                         tags = row[Recipes.tags],
+//                         instructions = row[Recipes.instructions] ,
+//                         ingredientsName = row[Recipes.ingredientsName] ,
+//                         ingredientsQuantity = row[Recipes.ingredientsQuantity],
+//                         userName = row[Users.username]                    )
+//                 }
+//             }
+
+//             // Send the list back to Android
+// //                call.respond(HttpStatusCode.OK, mapOf("success" to true, "recipes" to allRecipes))
+//             // GOOD: Using our strict, predictable Data Class
+//             call.respond(HttpStatusCode.OK, RecipeFeedResponse(success = true, recipes = allRecipes))
+//         }
 
 ////        Search with recipe name and tags
 //        get("/api/recipes/searchwoart") {
