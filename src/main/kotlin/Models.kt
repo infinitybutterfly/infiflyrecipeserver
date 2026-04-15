@@ -120,7 +120,8 @@ data class RecipeResponse(
     val ingredientsQuantity: String,
     val userName: String?,
 
-    val isLocked: Boolean
+    val isLocked: Boolean,
+    val viewcount: Int? = null
 )
 
 //@Serializable
