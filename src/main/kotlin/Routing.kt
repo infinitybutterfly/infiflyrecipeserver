@@ -1067,7 +1067,8 @@ fun Application.configureRouting() {
                             ingredientsName = "Locked",
                             ingredientsQuantity = "Locked",
                             userName = singleRecipe[Users.username], // Attached perfectly via innerJoin
-                            isLocked = true // Tell Android to pop up the Bottom Sheet!
+                            isLocked = singleRecipe[Users.isPremium], // Tell Android to pop up the Bottom Sheet!
+                            viewcount = singleRecipe[Users.freeViews]
                         )
 
                         call.respond(HttpStatusCode.OK, teaserResponse)
