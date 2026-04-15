@@ -806,49 +806,136 @@ fun Application.configureRouting() {
             }
 
 
-             get("/api/recipes/{id}") {
-                // 1. Grab the ID from the URL (e.g., /api/recipes/4)
-                val recipeId = call.parameters["id"]?.toIntOrNull()
+            //  get("/api/recipes/{id}") {
+            //     // 1. Grab the ID from the URL (e.g., /api/recipes/4)
+            //     val recipeId = call.parameters["id"]?.toIntOrNull()
 
+            //     if (recipeId == null) {
+            //         call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(success = false, message = "Invalid Recipe ID format"))
+            //         return@get
+            //     }
+
+            //     // 2. Query the database for that exact row
+            //     val singleRecipe = transaction {
+            //         // val row = Recipes.selectAll().where { Recipes.id eq recipeId }.singleOrNull()
+            //         val row = (Recipes innerJoin Users).selectAll().where { Recipes.id eq recipeId }.singleOrNull()
+
+
+            //         // 3. If we found it, map it to your Data Class
+            //         if (row != null) {
+            //             RecipeResponse(
+            //                 id = row[Recipes.id].value, // Note: Use .value if your ID is an EntityID!
+            //                 name = row[Recipes.name],
+            //                 imageUrl = row[Recipes.imageUrl],
+            //                 category = row[Recipes.category],
+            //                 country = row[Recipes.country],
+            //                 tags = row[Recipes.tags],
+            //                 instructions = row[Recipes.instructions],
+            //                 ingredientsName = row[Recipes.ingredientsName],
+            //                 ingredientsQuantity = row[Recipes.ingredientsQuantity],
+            //                 userName = row[Users.username]
+            //             )
+            //         } else {
+            //             null
+            //         }
+            //     }
+
+            //     // 4. Return the result
+            //     if (singleRecipe != null) {
+            //         // Option A: Just return the recipe object directly
+            //         call.respond(HttpStatusCode.OK, singleRecipe)
+
+            //         // Option B (If you want a wrapper):
+            //         // call.respond(HttpStatusCode.OK, mapOf("success" to true, "recipe" to singleRecipe))
+            //     } else {
+            //         call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(success = false, message = "Recipe not found"))
+            //     }
+            // }
+
+                get("/api/recipes/{id}") {
+                // 1. Identify the user making the request
+                val principal = call.principal<JWTPrincipal>()
+                val loggedInUserId = principal?.payload?.getClaim("user_id")?.asString()?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.Unauthorized)
+
+                // 2. Grab the Recipe ID from the URL
+                val recipeId = call.parameters["id"]?.toIntOrNull()
                 if (recipeId == null) {
-                    call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(success = false, message = "Invalid Recipe ID format"))
+                    call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Invalid Recipe ID"))
                     return@get
                 }
 
-                // 2. Query the database for that exact row
-                val singleRecipe = transaction {
-                    // val row = Recipes.selectAll().where { Recipes.id eq recipeId }.singleOrNull()
-                    val row = (Recipes innerJoin Users).selectAll().where { Recipes.id eq recipeId }.singleOrNull()
-
-
-                    // 3. If we found it, map it to your Data Class
-                    if (row != null) {
-                        RecipeResponse(
-                            id = row[Recipes.id].value, // Note: Use .value if your ID is an EntityID!
-                            name = row[Recipes.name],
-                            imageUrl = row[Recipes.imageUrl],
-                            category = row[Recipes.category],
-                            country = row[Recipes.country],
-                            tags = row[Recipes.tags],
-                            instructions = row[Recipes.instructions],
-                            ingredientsName = row[Recipes.ingredientsName],
-                            ingredientsQuantity = row[Recipes.ingredientsQuantity],
-                            userName = row[Users.username]
-                        )
-                    } else {
-                        null
-                    }
+                // 3. Fetch User data to check Paywall Status
+                val userRow = transaction {
+                    Users.selectAll().where { Users.id eq loggedInUserId }.singleOrNull()
                 }
 
-                // 4. Return the result
-                if (singleRecipe != null) {
-                    // Option A: Just return the recipe object directly
-                    call.respond(HttpStatusCode.OK, singleRecipe)
+                if (userRow == null) {
+                    call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(false, "User not found"))
+                    return@get
+                }
 
-                    // Option B (If you want a wrapper):
-                    // call.respond(HttpStatusCode.OK, mapOf("success" to true, "recipe" to singleRecipe))
+                val isPremium = userRow[Users.isPremium]
+                val currentFreeViews = userRow[Users.freeViews]
+
+                // 4. Fetch the Recipe (using innerJoin so we get the author's Username!)
+                val singleRecipe = transaction {
+                    (Recipes innerJoin Users).selectAll().where { Recipes.id eq recipeId }.singleOrNull()
+                }
+
+                if (singleRecipe != null) {
+
+                    // PAYWALL LOGIC: Are they a free user who has already viewed 2 recipes?
+                    val isPaywalled = !isPremium && currentFreeViews >= 2
+
+                    if (isPaywalled) {
+                        // 🚨 THEY HIT THE PAYWALL: Send the "Teaser" version!
+                        val teaserResponse = RecipeResponse(
+                            id = singleRecipe[Recipes.id].value,
+                            name = singleRecipe[Recipes.name],
+                            imageUrl = singleRecipe[Recipes.imageUrl],
+                            category = singleRecipe[Recipes.category],
+                            country = singleRecipe[Recipes.country],
+                            tags = singleRecipe[Recipes.tags],
+                            // CENSOR THE SECRET DATA:
+                            instructions = "Unlock Premium to view these instructions!",
+                            ingredientsName = "Locked",
+                            ingredientsQuantity = "Locked",
+                            userName = singleRecipe[Users.username], // Attached perfectly via innerJoin
+                            isLocked = true // Tell Android to pop up the Bottom Sheet!
+                        )
+
+                        call.respond(HttpStatusCode.OK, teaserResponse)
+                        return@get
+                    }
+
+                    // 5. If they are a free user (with views left), increment their counter!
+                    if (!isPremium) {
+                        transaction {
+                            Users.update({ Users.id eq loggedInUserId }) {
+                                it[freeViews] = currentFreeViews + 1
+                            }
+                        }
+                    }
+
+                    // 6. Send the FULL unlocked recipe
+                    val fullRecipeResponse = RecipeResponse(
+                        id = singleRecipe[Recipes.id].value,
+                        name = singleRecipe[Recipes.name],
+                        imageUrl = singleRecipe[Recipes.imageUrl],
+                        category = singleRecipe[Recipes.category],
+                        country = singleRecipe[Recipes.country],
+                        tags = singleRecipe[Recipes.tags],
+                        instructions = singleRecipe[Recipes.instructions],
+                        ingredientsName = singleRecipe[Recipes.ingredientsName],
+                        ingredientsQuantity = singleRecipe[Recipes.ingredientsQuantity],
+                        userName = singleRecipe[Users.username], // Attached perfectly via innerJoin
+                        isLocked = false
+                    )
+
+                    call.respond(HttpStatusCode.OK, fullRecipeResponse)
                 } else {
-                    call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(success = false, message = "Recipe not found"))
+                    call.respond(HttpStatusCode.NotFound, SimpleMessageResponse(false, "Recipe not found"))
                 }
             }
 
