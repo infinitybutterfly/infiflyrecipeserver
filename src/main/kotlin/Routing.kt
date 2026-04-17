@@ -655,27 +655,6 @@ fun Application.configureRouting() {
                 }
             }
 
-            // --- CHECK IF USERNAME IS AVAILABLE ---
-            get("/api/check-username") {
-                val queryUsername = call.request.queryParameters["username"]?.trim()
-
-                if (queryUsername.isNullOrBlank()) {
-                    call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Username required"))
-                    return@get
-                }
-
-                // Check if ANY row in the database already has this exact username
-                val isTaken = transaction {
-                    Users.selectAll()
-                        .where { Users.username.lowerCase() eq queryUsername.lowercase() }
-                        .singleOrNull() != null
-                }
-
-                // If it is NOT taken, it is available!
-                call.respond(HttpStatusCode.OK, mapOf("available" to !isTaken))
-            }
-
-
             // --- 2. GET THE RECIPE FEED ---
 //            get("/api/recipes") {
 //                // Fetch all recipes from the database (We'll limit it to 50 so it doesn't crash the app if you have millions later!)
@@ -1201,6 +1180,27 @@ fun Application.configureRouting() {
         } // End of authenticate block
 
 
+         // --- CHECK IF USERNAME IS AVAILABLE ---
+            get("/api/check-username") {
+                val queryUsername = call.request.queryParameters["username"]?.trim()
+
+                if (queryUsername.isNullOrBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, SimpleMessageResponse(false, "Username required"))
+                    return@get
+                }
+
+                // Check if ANY row in the database already has this exact username
+                val isTaken = transaction {
+                    Users.selectAll()
+                        .where { Users.username.lowerCase() eq queryUsername.lowercase() }
+                        .singleOrNull() != null
+                }
+
+                // If it is NOT taken, it is available!
+                call.respond(HttpStatusCode.OK, mapOf("available" to !isTaken))
+            }
+
+            
         // ---  GET THE RECIPE FEED WITHOUT AUTH ---
         get("/api/recipeswoa") {
             // Fetch all recipes from the database (We'll limit it to 50 so it doesn't crash the app if you have millions later!)
